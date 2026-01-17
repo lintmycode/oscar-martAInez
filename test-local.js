@@ -5,6 +5,7 @@
  */
 
 import { TransactionExtractor } from './lib/transaction-extractor.js';
+import { ExclusionFilter } from './lib/exclusion-filter.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -37,10 +38,16 @@ async function test() {
   const targetMonth = { year, month };
 
   try {
-    const transactions = await TransactionExtractor.extractFromDirectory(
+    let transactions = await TransactionExtractor.extractFromDirectory(
       inputsDir,
       targetMonth
     );
+
+    // Apply exclusion filter
+    const exclusionFilter = new ExclusionFilter();
+    const exclusionsFile = path.join(process.cwd(), 'exclusions.txt');
+    await exclusionFilter.load(exclusionsFile);
+    transactions = exclusionFilter.filter(transactions);
 
     console.log('\n' + '='.repeat(60));
     console.log('EXTRACTED TRANSACTIONS');

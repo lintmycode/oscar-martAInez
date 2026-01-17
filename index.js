@@ -11,6 +11,7 @@ import { InvoiceExtractor } from './lib/invoice-extractor.js';
 import { InvoiceMatcher } from './lib/matcher.js';
 import { XlsxGenerator } from './lib/xlsx-generator.js';
 import { TokenTracker } from './lib/token-tracker.js';
+import { ExclusionFilter } from './lib/exclusion-filter.js';
 
 /**
  * Main CLI entry point
@@ -75,7 +76,7 @@ async function main() {
     }
 
     // 6. Extract transactions from CSVs (from data/YYYY-MM/inputs/*.csv)
-    const transactions = await TransactionExtractor.extractFromDirectory(
+    let transactions = await TransactionExtractor.extractFromDirectory(
       inputsDir,
       { year: params.year, month: params.month }
     );
@@ -83,6 +84,12 @@ async function main() {
     if (transactions.length === 0) {
       throw new Error('No transactions found for the specified month');
     }
+
+    // 6b. Apply exclusion filter
+    const exclusionFilter = new ExclusionFilter();
+    const exclusionsFile = path.join(process.cwd(), 'exclusions.txt');
+    await exclusionFilter.load(exclusionsFile);
+    transactions = exclusionFilter.filter(transactions);
 
     // 7. Extract invoice data (from data/YYYY-MM/inputs/paper/ and data/YYYY-MM/inputs/digital/)
     // Cached data saved as sidecar JSON files (e.g., invoice.pdf -> invoice.json)

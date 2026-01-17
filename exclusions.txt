@@ -1,0 +1,19 @@
+# Transaction Exclusions
+# Lines starting with # are comments
+# Supports wildcards with * (matches any characters)
+# Matches against the transaction description (case-insensitive)
+
+# Bank fees and commissions
+2,0% COM*
+IMPOSTO SELO*
+*COM SB*
+MANUT CONTA*
+IVA
+
+# Internal transfers (personal)
+TRF RV * N*
+TRF CAIXADIRECTA*
+
+# Examples (commented out):
+# LEVANTAMENTO*
+# BX VALOR*
