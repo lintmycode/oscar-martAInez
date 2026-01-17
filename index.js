@@ -11,6 +11,7 @@ import { InvoiceExtractor } from './lib/invoice-extractor.js';
 import { InvoiceMatcher } from './lib/matcher.js';
 import { XlsxGenerator } from './lib/xlsx-generator.js';
 import { TokenTracker } from './lib/token-tracker.js';
+import { PersonalExceptionFilter } from './lib/personal-exception-filter.js';
 import { ExclusionFilter } from './lib/exclusion-filter.js';
 import { TransactionGrouper } from './lib/transaction-grouper.js';
 
@@ -98,6 +99,20 @@ async function main() {
     await grouper.load(groupingFile);
     transactions = grouper.group(transactions);
 
+    // 6d. Move personal exceptions out of company transactions
+    const personalExceptionFilter = new PersonalExceptionFilter();
+    const personalExceptionsFile = path.join(process.cwd(), 'personal-exceptions.txt');
+    await personalExceptionFilter.load(personalExceptionsFile);
+    const split = personalExceptionFilter.split(transactions);
+    const personalExceptionRows = split.personal.map(txn => ({
+      date: txn.date,
+      vendor: txn.vendor,
+      amount: -Math.abs(txn.amount),
+      invoice: '',
+      notes: `Personal exception (${txn.source})`,
+    }));
+    transactions = split.remaining;
+
     // 7. Extract invoice data (from data/YYYY-MM/inputs/paper/ and data/YYYY-MM/inputs/digital/)
     // Cached data saved as sidecar JSON files (e.g., invoice.pdf -> invoice.json)
     const invoiceExtractor = new InvoiceExtractor(openaiClient, tokenTracker);
@@ -115,7 +130,9 @@ async function main() {
 
     // 9. Generate sheets
     const companyRows = matcher.applyMatches(transactions, matched);
-    const personalRows = matcher.createPersonalSheet(unmatched);
+    const personalRows = personalExceptionRows.concat(
+      matcher.createPersonalSheet(unmatched)
+    );
 
     // 10. Generate XLSX (saved to data/YYYY-MM/out/)
     const generator = new XlsxGenerator();

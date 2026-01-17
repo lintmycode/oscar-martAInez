@@ -28,8 +28,8 @@ export const CONFIG = {
   // Invoice matching thresholds
   matching: {
     amountTolerance: 1.50, // EUR (allows for currency conversion fluctuations)
-    dateProximityDays: 7,
-    vendorSimilarityThreshold: 0.6, // 0-1 scale
+    dateProximityDays: 3,
+    vendorSimilarityThreshold: 0.8, // 0-1 scale
     batchSize: 30, // Transactions per OpenAI request
   },
 

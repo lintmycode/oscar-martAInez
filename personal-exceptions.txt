@@ -1,0 +1,7 @@
+# Personal Account Exceptions
+# Lines starting with # are comments
+# Supports wildcards with * (matches any characters)
+# Matches against the transaction description (case-insensitive)
+
+LEVANTAMENTO*
+DESPESAS*
