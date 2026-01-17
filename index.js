@@ -109,6 +109,7 @@ async function main() {
       vendor: txn.vendor,
       amount: -Math.abs(txn.amount),
       invoice: '',
+      file: '',
       notes: `Personal exception (${txn.source})`,
     }));
     transactions = split.remaining;
