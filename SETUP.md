@@ -30,13 +30,15 @@ OPENAI_API_KEY=sk-proj-your-key-here
 Your working directory should look like this:
 
 ```
-├── params.yml              # Target month configuration
-├── inputs/                 # Your monthly data
-│   ├── extracto_cc_*.csv   # Credit card statements
-│   ├── extracto_ordem_*.csv # Bank account statements
-│   ├── paper/              # Paper invoice photos (jpg/png)
-│   └── digital/            # PDF invoices
-└── out/                    # Generated outputs (auto-created)
+data/
+└── YYYY-MM/                    # e.g., 2025-10
+    ├── params.yml              # Optional: year: 2025, month: 10
+    ├── inputs/
+    │   ├── extracto_*.csv      # Credit card statements
+    │   ├── extracto_ordem_*.csv # Bank account statements
+    │   ├── paper/              # Paper invoice photos (jpg/png)
+    │   └── digital/            # PDF invoices
+    └── out/                    # Generated outputs (auto-created)
 ```
 
 ## Usage
@@ -44,7 +46,7 @@ Your working directory should look like this:
 ### Step 1: Test CSV parsing (no API calls)
 
 ```bash
-node test-local.js
+node test-local.js --y=2025 --m=10
 ```
 
 This validates your CSV files are being read correctly without using any OpenAI credits.
@@ -52,24 +54,42 @@ This validates your CSV files are being read correctly without using any OpenAI 
 ### Step 2: Run full processing
 
 ```bash
-node index.js
-# or
-npm start
+node index.js --y=2025 --m=10
+# or with full argument names:
+node index.js --year=2025 --month=10
 ```
 
 This will:
 1. Extract transactions from your CSVs
 2. Extract invoice data from PDFs and images (uses OpenAI API)
 3. Match invoices to transactions
-4. Generate Excel spreadsheet in `out/`
+4. Generate Excel spreadsheet in `data/YYYY-MM/out/`
 
 ### Step 3: Check the output
 
-Open `out/2025-10.xlsx` (or whatever month you configured).
+Open `data/2025-10/out/2025-10.xlsx` (or whatever month you configured).
 
 You'll find 2 sheets:
 - **company account**: All company transactions with matched invoices
 - **personal account**: Invoices paid personally (not in company accounts)
+
+## Command-Line Arguments
+
+```bash
+# Required arguments
+--year=YYYY, --y=YYYY    # Year (e.g., 2025)
+--month=MM, --m=MM       # Month (1-12)
+
+# Help
+--help, -h               # Show usage help
+```
+
+Examples:
+```bash
+node index.js --y=2025 --m=10       # October 2025
+node index.js --year=2025 --month=11  # November 2025
+node index.js --help                # Show help
+```
 
 ## Expected Costs
 
@@ -84,22 +104,25 @@ The tool will abort if costs exceed the configured budget (200k tokens by defaul
 
 ### "No transactions found"
 
-Check that `params.yml` month/year matches your data:
+Check that CSV files are in `data/YYYY-MM/inputs/` and contain transactions for that month.
 
-```yaml
-year: 2025
-month: 10
+### "Directory not found"
+
+Make sure you created the month directory:
+
+```bash
+mkdir -p data/2025-10/inputs/{paper,digital}
 ```
 
 ### "OpenAI API error"
 
 1. Verify your API key is set in `.env`
 2. Check you have credits at [platform.openai.com/usage](https://platform.openai.com/usage)
-3. Test the prompt manually in ChatGPT first (see `PROMPTS.md`)
+3. Test the prompt manually in ChatGPT first (see [PROMPTS.md](PROMPTS.md))
 
 ### Poor invoice matching
 
-Adjust thresholds in `config.js`:
+Adjust thresholds in [config.js](config.js):
 
 ```javascript
 matching: {
@@ -111,9 +134,27 @@ matching: {
 
 ## What's Next?
 
-1. **Test prompts in ChatGPT UI first** (see `PROMPTS.md`)
+1. **Test prompts in ChatGPT UI first** (see [PROMPTS.md](PROMPTS.md))
 2. **Review the output** Excel file
 3. **Adjust config** if needed
 4. **Run monthly** with new data
 
-The tool caches invoice extractions in `out/cache.json` - unchanged files are never reprocessed.
+The tool caches invoice extractions in `data/YYYY-MM/out/cache.json` - unchanged files are never reprocessed.
+
+## Multiple Months
+
+You can manage multiple months easily:
+
+```bash
+# October 2025
+mkdir -p data/2025-10/inputs/{paper,digital}
+# Add files...
+node index.js --y=2025 --m=10
+
+# November 2025
+mkdir -p data/2025-11/inputs/{paper,digital}
+# Add files...
+node index.js --y=2025 --m=11
+```
+
+Each month's data and outputs are kept separate in `data/YYYY-MM/`.

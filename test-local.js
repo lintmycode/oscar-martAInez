@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Test script - runs without OpenAI API to validate CSV parsing
+ * Test script - validates CSV parsing and generates sidecar JSON for transactions
  */
 
 import { TransactionExtractor } from './lib/transaction-extractor.js';
+import fs from 'fs/promises';
 import path from 'path';
 
 async function test() {
@@ -32,6 +33,7 @@ async function test() {
 
   const monthDir = path.join(process.cwd(), 'data', monthStr);
   const inputsDir = path.join(monthDir, 'inputs');
+  const outDir = path.join(monthDir, 'out');
   const targetMonth = { year, month };
 
   try {
@@ -45,9 +47,12 @@ async function test() {
     console.log('='.repeat(60));
 
     transactions.forEach((txn, idx) => {
+      const typeIcon = txn.type === 'outgoing' ? '−' : '+';
+      const typeLabel = txn.type === 'outgoing' ? 'OUT' : 'IN';
+      const displayAmount = Math.abs(txn.amount);
       console.log(
         `${(idx + 1).toString().padStart(3)}. ${txn.date}  ` +
-        `${txn.vendor.padEnd(35)}  ${txn.amount.toFixed(2).padStart(8)}€`
+        `${txn.vendor.padEnd(35)}  ${typeIcon}${displayAmount.toFixed(2).padStart(8)}€ [${typeLabel}]`
       );
     });
 
@@ -55,6 +60,12 @@ async function test() {
     console.log(`Total: ${transactions.length} transactions`);
     console.log('='.repeat(60));
 
+    // Save transactions to sidecar JSON
+    await fs.mkdir(outDir, { recursive: true });
+    const sidecarPath = path.join(outDir, 'transactions.json');
+    await fs.writeFile(sidecarPath, JSON.stringify(transactions, null, 2));
+
+    console.log(`\n💾 Transactions saved to: data/${monthStr}/out/transactions.json`);
     console.log('\n✅ CSV parsing works! Ready to add OpenAI API key.\n');
 
   } catch (error) {

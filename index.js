@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
+import 'dotenv/config';
 import fs from 'fs/promises';
 import path from 'path';
 import OpenAI from 'openai';
+import yaml from 'js-yaml';
 import { CONFIG } from './config.js';
 import { TransactionExtractor } from './lib/transaction-extractor.js';
 import { InvoiceExtractor } from './lib/invoice-extractor.js';
@@ -43,6 +45,22 @@ async function main() {
     // 4. Ensure output directory exists
     await fs.mkdir(outDir, { recursive: true });
 
+    // 4b. Read optional params.yml for additional settings (e.g., remain)
+    const paramsPath = path.join(monthDir, 'params.yml');
+    let personalRemain = 0;
+    try {
+      const paramsRaw = await fs.readFile(paramsPath, 'utf8');
+      const paramsYaml = yaml.load(paramsRaw) || {};
+      const parsedRemain = Number(paramsYaml.remain);
+      if (Number.isFinite(parsedRemain)) {
+        personalRemain = parsedRemain;
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
     // 5. Initialize OpenAI client (optional for now)
     const tokenTracker = new TokenTracker();
     let openaiClient = null;
@@ -67,15 +85,14 @@ async function main() {
     }
 
     // 7. Extract invoice data (from data/YYYY-MM/inputs/paper/ and data/YYYY-MM/inputs/digital/)
+    // Cached data saved as sidecar JSON files (e.g., invoice.pdf -> invoice.json)
     const invoiceExtractor = new InvoiceExtractor(openaiClient, tokenTracker);
     const paperDir = path.join(inputsDir, 'paper');
     const digitalDir = path.join(inputsDir, 'digital');
-    const cacheFile = path.join(outDir, 'cache.json');
 
     const invoices = await invoiceExtractor.extractAll(
       paperDir,
-      digitalDir,
-      cacheFile
+      digitalDir
     );
 
     // 8. Match invoices to transactions
@@ -90,7 +107,7 @@ async function main() {
     const generator = new XlsxGenerator();
     const xlsxPath = path.join(outDir, `${monthStr}.xlsx`);
 
-    await generator.generate(companyRows, personalRows, xlsxPath);
+    await generator.generate(companyRows, personalRows, xlsxPath, { personalRemain });
 
     // 11. Export debug CSVs (saved to data/YYYY-MM/out/)
     await generator.exportCsv(companyRows, personalRows, outDir);

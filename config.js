@@ -9,7 +9,7 @@ export const CONFIG = {
 
   // Cost control
   budget: {
-    maxTokensPerRun: 200000, // Abort if exceeded
+    maxTokensPerRun: 500000, // Abort if exceeded
     warningThreshold: 150000, // Warn at 75%
   },
 
