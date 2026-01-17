@@ -1,0 +1,61 @@
+╔══════════════════════════════════════════════════════════════╗
+║           AI INVOICE AUTOMATION - QUICK START                ║
+╚══════════════════════════════════════════════════════════════╝
+
+INSTALLATION
+────────────────────────────────────────────────────────────────
+npm install
+
+SETUP
+────────────────────────────────────────────────────────────────
+1. Get OpenAI API key → platform.openai.com/api-keys
+2. cp .env.example .env
+3. Edit .env and add: OPENAI_API_KEY=sk-proj-...
+
+DIRECTORY STRUCTURE
+────────────────────────────────────────────────────────────────
+data/
+└── YYYY-MM/               # e.g., 2025-10
+    ├── params.yml         # optional: year & month
+    ├── inputs/
+    │   ├── *.csv          # Bank/CC statements
+    │   ├── paper/         # Paper invoice photos
+    │   └── digital/       # PDF invoices
+    └── out/               # Generated (auto-created)
+
+USAGE
+────────────────────────────────────────────────────────────────
+# Test CSV parsing (no API cost)
+node test-local.js --y=2025 --m=10
+
+# Run full processing
+node index.js --y=2025 --m=10
+
+# Help
+node index.js --help
+
+OUTPUT
+────────────────────────────────────────────────────────────────
+data/2025-10/out/
+├── 2025-10.xlsx          # Main spreadsheet (2 sheets)
+├── company-account.csv   # Debug CSV
+├── personal-account.csv  # Debug CSV
+└── cache.json            # Invoice cache
+
+COST
+────────────────────────────────────────────────────────────────
+Typical monthly run: $0.01 - $0.05
+Budget limit: 200k tokens (auto-abort if exceeded)
+
+WORKFLOW
+────────────────────────────────────────────────────────────────
+1. Test prompts in ChatGPT UI (zero cost)
+2. Refine until perfect
+3. Add API key and run CLI
+4. Review output Excel file
+5. Adjust config.js if needed
+
+DOCUMENTATION
+────────────────────────────────────────────────────────────────
+README.md    → Full documentation
+PROMPTS.md   → Test prompts in ChatGPT UI first

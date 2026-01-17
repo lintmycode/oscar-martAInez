@@ -1,0 +1,28 @@
+{
+  "name": "ai-invoice-automation",
+  "version": "1.0.0",
+  "description": "CLI tool to automate monthly accounting sheet generation",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "accounting",
+    "invoices",
+    "automation",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "js-yaml": "^4.1.0",
+    "jschardet": "^3.1.4",
+    "openai": "^4.77.0",
+    "pdf-parse": "^1.1.1",
+    "sharp": "^0.33.5",
+    "string-similarity": "^4.0.4"
+  }
+}
