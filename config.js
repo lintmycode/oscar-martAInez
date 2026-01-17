@@ -10,7 +10,7 @@ export const CONFIG = {
   // Cost control
   budget: {
     maxTokensPerRun: 500000, // Abort if exceeded
-    warningThreshold: 150000, // Warn at 75%
+    warningThreshold: 450000, // Warn at 75%
   },
 
   // Pricing (USD per 1M tokens) - update from OpenAI pricing page
@@ -37,4 +37,7 @@ export const CONFIG = {
   useLocalPdfExtraction: true,
   useOcrOnlyWhenNeeded: true,
   cacheInvoices: true,
+
+  // currency conversion
+  usd2eur: 0.95
 };
