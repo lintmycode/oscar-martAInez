@@ -1,0 +1,16 @@
+# Transaction Grouping Rules
+# Format: PATTERN → DISPLAY_NAME → INVOICE_VENDOR_MATCH
+#
+# PATTERN: Wildcard pattern to match transactions (case-insensitive)
+# DISPLAY_NAME: How to show the grouped transaction
+# INVOICE_VENDOR_MATCH: Pattern to match against invoice vendor (optional)
+#
+# Lines starting with # are comments
+# Blank lines are ignored
+
+# Via Verde tolls - multiple small charges, one monthly invoice
+BX VALOR* → Via Verde Tolls → *Via Verde*
+
+# Examples (commented out):
+# PARKING* → Monthly Parking → *Parking*
+# UBER* → Uber Rides → *Uber*

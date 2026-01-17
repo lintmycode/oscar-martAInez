@@ -6,6 +6,7 @@
 
 import { TransactionExtractor } from './lib/transaction-extractor.js';
 import { ExclusionFilter } from './lib/exclusion-filter.js';
+import { TransactionGrouper } from './lib/transaction-grouper.js';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -48,6 +49,12 @@ async function test() {
     const exclusionsFile = path.join(process.cwd(), 'exclusions.txt');
     await exclusionFilter.load(exclusionsFile);
     transactions = exclusionFilter.filter(transactions);
+
+    // Group related transactions
+    const grouper = new TransactionGrouper();
+    const groupingFile = path.join(process.cwd(), 'grouping-rules.txt');
+    await grouper.load(groupingFile);
+    transactions = grouper.group(transactions);
 
     console.log('\n' + '='.repeat(60));
     console.log('EXTRACTED TRANSACTIONS');

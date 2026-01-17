@@ -12,6 +12,7 @@ import { InvoiceMatcher } from './lib/matcher.js';
 import { XlsxGenerator } from './lib/xlsx-generator.js';
 import { TokenTracker } from './lib/token-tracker.js';
 import { ExclusionFilter } from './lib/exclusion-filter.js';
+import { TransactionGrouper } from './lib/transaction-grouper.js';
 
 /**
  * Main CLI entry point
@@ -90,6 +91,12 @@ async function main() {
     const exclusionsFile = path.join(process.cwd(), 'exclusions.txt');
     await exclusionFilter.load(exclusionsFile);
     transactions = exclusionFilter.filter(transactions);
+
+    // 6c. Group related transactions (e.g., Via Verde tolls)
+    const grouper = new TransactionGrouper();
+    const groupingFile = path.join(process.cwd(), 'grouping-rules.txt');
+    await grouper.load(groupingFile);
+    transactions = grouper.group(transactions);
 
     // 7. Extract invoice data (from data/YYYY-MM/inputs/paper/ and data/YYYY-MM/inputs/digital/)
     // Cached data saved as sidecar JSON files (e.g., invoice.pdf -> invoice.json)
