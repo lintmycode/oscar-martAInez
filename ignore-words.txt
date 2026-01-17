@@ -1,0 +1,8 @@
+# Vendor cleanup ignore words
+# Lines starting with # are comments
+# Case-insensitive substring removal
+
+COMPRA
+E1310
+V. CAST
+*CHATGPT SUBSCR OPENAI.COM

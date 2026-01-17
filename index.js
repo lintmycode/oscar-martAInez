@@ -77,7 +77,11 @@ async function main() {
       console.log('   Running in local-only mode (limited invoice extraction)');
     }
 
-    // 6. Extract transactions from CSVs (from data/YYYY-MM/inputs/*.csv)
+    // 6. Load vendor ignore words (optional)
+    const ignoreWordsFile = path.join(process.cwd(), 'ignore-words.txt');
+    await TransactionExtractor.loadIgnoreWords(ignoreWordsFile);
+
+    // 7. Extract transactions from CSVs (from data/YYYY-MM/inputs/*.csv)
     let transactions = await TransactionExtractor.extractFromDirectory(
       inputsDir,
       { year: params.year, month: params.month }
@@ -87,19 +91,19 @@ async function main() {
       throw new Error('No transactions found for the specified month');
     }
 
-    // 6b. Apply exclusion filter
+    // 7b. Apply exclusion filter
     const exclusionFilter = new ExclusionFilter();
     const exclusionsFile = path.join(process.cwd(), 'exclusions.txt');
     await exclusionFilter.load(exclusionsFile);
     transactions = exclusionFilter.filter(transactions);
 
-    // 6c. Group related transactions (e.g., Via Verde tolls)
+    // 7c. Group related transactions (e.g., Via Verde tolls)
     const grouper = new TransactionGrouper();
     const groupingFile = path.join(process.cwd(), 'grouping-rules.txt');
     await grouper.load(groupingFile);
     transactions = grouper.group(transactions);
 
-    // 6d. Move personal exceptions out of company transactions
+    // 7d. Move personal exceptions out of company transactions
     const personalExceptionFilter = new PersonalExceptionFilter();
     const personalExceptionsFile = path.join(process.cwd(), 'personal-exceptions.txt');
     await personalExceptionFilter.load(personalExceptionsFile);
