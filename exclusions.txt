@@ -11,8 +11,12 @@ MANUT CONTA*
 IVA
 
 # Internal transfers (personal)
-TRF RV * N*
 TRF CAIXADIRECTA*
+NITIDA*
+TRANSFERENCIA SALDO PARA CONTA *
+TRF *
+BUSINESS
+PAGAMENTO*
 
 # Examples (commented out):
 # LEVANTAMENTO*
