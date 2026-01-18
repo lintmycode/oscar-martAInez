@@ -1,7 +1,7 @@
 {
-  "name": "ai-invoice-automation",
+  "name": "oscar-martAInez",
   "version": "1.0.0",
-  "description": "CLI tool to automate monthly accounting sheet generation",
+  "description": "oscar-martAInez - AI-powered monthly accounting automation",
   "main": "index.js",
   "type": "module",
   "scripts": {

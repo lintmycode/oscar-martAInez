@@ -53,12 +53,26 @@ function parseArgs() {
       month = parseInt(arg.split('=')[1]);
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
+AI Invoice Month Setup - Create folder structure for a new month
+
 Usage: node create-month.js --year=YYYY --month=MM
 
 Options:
   --year=YYYY, --y=YYYY    Year (e.g., 2025)
   --month=MM, --m=MM       Month (1-12)
   --help, -h               Show this help
+
+Example:
+  node create-month.js --y=2025 --m=10
+
+This will create:
+  data/2025-10/inputs/paper/      For invoice photos
+  data/2025-10/inputs/digital/    For PDF invoices
+  data/2025-10/out/               For generated outputs
+  data/2025-10/params.yml         Month configuration
+
+After running this, add your CSV files to data/2025-10/inputs/
+and invoice documents to the paper/ and digital/ subdirectories.
 `);
       process.exit(0);
     }

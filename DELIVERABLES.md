@@ -191,7 +191,7 @@ Files named by target month:
 ## Files Delivered
 
 ```
-ai-invoice/
+oscar-martAInez/
 ├── index.js                    # Main CLI (138 lines)
 ├── config.js                   # Configuration (38 lines)
 ├── test-local.js               # Local testing (40 lines)

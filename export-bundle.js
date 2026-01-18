@@ -14,18 +14,19 @@ async function main() {
     const monthDir = path.join(process.cwd(), 'data', monthStr);
     const inputsDir = path.join(monthDir, 'inputs');
     const outDir = path.join(monthDir, 'out');
-    const exportDir = path.join(monthDir, 'export');
+    const companyName = sanitizeName(CONFIG.company?.name || 'company');
+    const exportFolderName = `${companyName}-export-${monthStr}`;
+    const exportDir = path.join(monthDir, exportFolderName);
 
     await fs.mkdir(exportDir, { recursive: true });
 
     const copied = await copyInputsStructured(inputsDir, exportDir);
 
-    const companyName = sanitizeName(CONFIG.company?.name || 'company');
     const exportXlsxName = `${companyName}-${monthStr}.xlsx`;
     const xlsxPath = path.join(outDir, `${monthStr}.xlsx`);
     await copyIfExists(xlsxPath, path.join(exportDir, exportXlsxName));
 
-    console.log(`\nExported ${copied} input files + ${exportXlsxName} to data/${monthStr}/export/`);
+    console.log(`\nExported ${copied} input files + ${exportXlsxName} to data/${monthStr}/${exportFolderName}/`);
     console.log('='.repeat(60));
   } catch (error) {
     console.error(`\n❌ Error: ${error.message}\n`);
@@ -98,12 +99,26 @@ function parseArgs() {
       month = parseInt(arg.split('=')[1]);
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
+AI Invoice Export Bundle - Package files for accountant delivery
+
 Usage: node export-bundle.js --year=YYYY --month=MM
 
 Options:
   --year=YYYY, --y=YYYY    Year (e.g., 2025)
   --month=MM, --m=MM       Month (1-12)
   --help, -h               Show this help
+
+Example:
+  node export-bundle.js --y=2025 --m=10
+
+This will create data/2025-10/<company>-export-2025-10/ containing:
+  - All CSV files from inputs/
+  - All files from inputs/paper/ (invoice photos)
+  - All files from inputs/digital/ (PDF invoices)
+  - The generated XLSX renamed to <company>-2025-10.xlsx
+
+JSON cache files are excluded. The export folder is ready to send
+to your accountant.
 `);
       process.exit(0);
     }

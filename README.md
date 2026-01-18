@@ -1,30 +1,42 @@
-# AI Invoice Automation
+# oscar-martAInez
 
-Automates monthly accounting sheet generation by matching bank/credit card transactions to invoice documents using AI.
+AI-powered monthly accounting automation. Matches bank/credit card transactions to invoice documents using OpenAI.
 
 ## Features
 
 - **Smart CSV parsing**: Auto-detects encoding, delimiter, and column structure
 - **Invoice extraction**: Uses OpenAI Vision API for PDFs and images
 - **Intelligent matching**: Scores transactions vs invoices by amount, date, vendor
+- **Transaction filtering**: Exclude specific patterns and route personal expenses
+- **Transaction grouping**: Automatically group related transactions (e.g., toll charges)
 - **Cost control**: Built-in token tracking with hard budget limits
 - **Caching**: Never processes the same invoice twice
-- **Dual output**: XLSX spreadsheet + debug CSV files
+- **Dual output**: XLSX spreadsheet + debug CSV files with invoice file attachments
+- **Export bundle**: Package inputs and outputs for accountant delivery
 
 ## Project Structure
 
 ```
-ai-invoice/
+oscar-martAInez/
 ├── index.js                    # Main CLI
 ├── config.js                   # Settings & budget limits
+├── create-month.js             # Create month folder structure
+├── export-bundle.js            # Package files for accountant
 ├── test-local.js               # Test CSV parsing (no API)
+├── exclusions.txt              # Transactions to exclude entirely
+├── ignore-words.txt            # Vendor name cleanup patterns
+├── personal-exceptions.txt     # Route to personal account
+├── grouping-rules.txt          # Auto-group related transactions
 ├── lib/                        # Core modules
 │   ├── csv-parser.js
 │   ├── transaction-extractor.js
 │   ├── invoice-extractor.js
 │   ├── matcher.js
 │   ├── token-tracker.js
-│   └── xlsx-generator.js
+│   ├── xlsx-generator.js
+│   ├── personal-exception-filter.js
+│   ├── exclusion-filter.js
+│   └── transaction-grouper.js
 │
 └── data/                       # Monthly data (git-ignored)
     └── YYYY-MM/                # One folder per month (e.g., 2025-10)
@@ -33,10 +45,11 @@ ai-invoice/
         │   ├── extracto_*.csv  # Bank/CC statements
         │   ├── paper/          # Paper invoice photos
         │   └── digital/        # PDF invoices
-        └── out/                # Generated outputs
-            ├── YYYY-MM.xlsx    # Main spreadsheet
-            ├── *.csv           # Debug CSVs
-            └── cache.json      # Invoice cache
+        ├── out/                # Generated outputs
+        │   ├── YYYY-MM.xlsx    # Main spreadsheet
+        │   ├── *.csv           # Debug CSVs
+        │   └── cache.json      # Invoice cache
+        └── <company>-export-YYYY-MM/  # Export bundle (created by export-bundle.js)
 ```
 
 ## Setup
@@ -97,15 +110,16 @@ node index.js --year=2025 --month=10
 node export-bundle.js --y=2025 --m=10
 ```
 
-Creates `data/YYYY-MM/export/` with all input files (keeping `digital/` and `paper/` structure), excluding JSON caches, plus the month XLSX renamed to `<company>-YYYY-MM.xlsx`.
+Creates `data/YYYY-MM/<company>-export-YYYY-MM/` with all input files (keeping `digital/` and `paper/` structure), excluding JSON caches, plus the month XLSX renamed to `<company>-YYYY-MM.xlsx`.
 
-### Ignore words and personal exceptions
+### Transaction filtering and routing
 
 You can adjust matching and routing using these files in the project root:
 
-- `ignore-words.txt` - words removed from vendor names for matching only (does not change the XLS output).
-- `exclusions.txt` - transactions to exclude entirely (matched against the raw description).
-- `personal-exceptions.txt` - transactions that should move to the personal account (e.g., `LEVANTAMENTO*`, `*DESPESAS*`), matched against the raw description.
+- **`ignore-words.txt`** - Words removed from vendor names for matching only (does not change the XLS output)
+- **`exclusions.txt`** - Transactions to exclude entirely (matched against raw description with wildcard support)
+- **`personal-exceptions.txt`** - Transactions that should route to the personal account (e.g., `LEVANTAMENTO*`, `*DESPESAS*`)
+- **`grouping-rules.txt`** - Auto-group related transactions into single rows (e.g., toll charges)
 
 ### Create new month structure
 
@@ -127,10 +141,10 @@ The tool generates files in `data/YYYY-MM/out/`:
 
 - **YYYY-MM.xlsx** - Excel workbook with 2 sheets:
   - **company account**: All company transactions with matched invoices
-  - **personal account**: Invoices not in company accounts (paid personally)
+  - **personal account**: Personal expenses and unmatched invoices (with TOTAL row)
 
 - **company-account.csv** - Debug CSV export
-- **personal-account.csv** - Debug CSV export  
+- **personal-account.csv** - Debug CSV export
 - **cache.json** - Cached invoice extractions
 
 ### Column structure (both sheets)
@@ -141,7 +155,8 @@ The tool generates files in `data/YYYY-MM/out/`:
 | 20/10/2025 | Digital Ocean | 6.98   |            |                      |                          |
 
 - Yellow highlighting for rows missing invoices (company sheet)
-- TOTAL row summing Valor (personal sheet)
+- **Ficheiro** column contains clickable links to invoice files
+- TOTAL row summing Valor (personal sheet only)
 - Bold headers, frozen header row
 
 ## How it works
@@ -222,14 +237,23 @@ export const CONFIG = {
   },
 
   budget: {
-    maxTokensPerRun: 200000,     // Abort if exceeded
-    warningThreshold: 150000,    // Warn at 75%
+    maxTokensPerRun: 500000,     // Abort if exceeded
+    warningThreshold: 450000,    // Warn at 90%
   },
 
   matching: {
-    amountTolerance: 0.50,       // EUR
-    dateProximityDays: 7,
-    vendorSimilarityThreshold: 0.6,
+    amountTolerance: 1.50,       // EUR (allows for currency conversion)
+    dateProximityDays: 3,
+    vendorSimilarityThreshold: 0.8,
+    batchSize: 30,               // Transactions per AI request
+  },
+
+  // Currency conversion
+  usd2eur: 0.95,
+
+  // Company info (used in export-bundle.js)
+  company: {
+    name: 'nitida',
   },
 };
 ```

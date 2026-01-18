@@ -18,6 +18,7 @@ TRF *
 BUSINESS
 PAGAMENTO*
 TFI *
+ADIANTAMENTO*
 
 # Examples (commented out):
 # LEVANTAMENTO*

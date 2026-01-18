@@ -19,7 +19,7 @@ import { TransactionGrouper } from './lib/transaction-grouper.js';
  * Main CLI entry point
  */
 async function main() {
-  console.log('AI Invoice Automation CLI');
+  console.log('oscar-martAInez CLI');
   console.log('='.repeat(60));
 
   try {
@@ -189,6 +189,8 @@ function parseArgs() {
       month = parseInt(arg.split('=')[1]);
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
+oscar-martAInez - Process monthly accounting sheets
+
 Usage: node index.js --year=YYYY --month=MM
 
 Options:
@@ -199,7 +201,25 @@ Options:
 Example:
   node index.js --y=2025 --m=10
 
-This will process data/2025-10/ and save outputs to data/2025-10/out/
+This will:
+  1. Extract transactions from CSV files in data/2025-10/inputs/
+  2. Extract invoice data from paper/ and digital/ subdirectories
+  3. Apply filters (exclusions.txt, personal-exceptions.txt)
+  4. Group related transactions (grouping-rules.txt)
+  5. Match invoices to transactions using AI
+  6. Generate data/2025-10/out/2025-10.xlsx with company and personal sheets
+
+Additional commands:
+  node create-month.js --y=2025 --m=10     Create month folder structure
+  node export-bundle.js --y=2025 --m=10    Package files for accountant
+  node test-local.js --y=2025 --m=10       Test CSV parsing (no API cost)
+
+Configuration files (project root):
+  exclusions.txt              Transactions to exclude entirely
+  personal-exceptions.txt     Route to personal account
+  ignore-words.txt            Vendor name cleanup patterns
+  grouping-rules.txt          Auto-group related transactions
+  config.js                   OpenAI settings and thresholds
 `);
       process.exit(0);
     }

@@ -1,5 +1,5 @@
 ╔══════════════════════════════════════════════════════════════╗
-║           AI INVOICE AUTOMATION - QUICK START                ║
+║              Oscar MartAInez - QUICK START                   ║
 ╚══════════════════════════════════════════════════════════════╝
 
 INSTALLATION
@@ -15,47 +15,70 @@ SETUP
 DIRECTORY STRUCTURE
 ────────────────────────────────────────────────────────────────
 data/
-└── YYYY-MM/               # e.g., 2025-10
-    ├── params.yml         # optional: year & month
+└── YYYY-MM/                      # e.g., 2025-10
+    ├── params.yml                # optional: year, month, remain
     ├── inputs/
-    │   ├── *.csv          # Bank/CC statements
-    │   ├── paper/         # Paper invoice photos
-    │   └── digital/       # PDF invoices
-    └── out/               # Generated (auto-created)
+    │   ├── *.csv                 # Bank/CC statements
+    │   ├── paper/                # Paper invoice photos
+    │   └── digital/              # PDF invoices
+    └── out/                      # Generated (auto-created)
 
 USAGE
 ────────────────────────────────────────────────────────────────
+# Create month structure
+node create-month.js --y=2025 --m=10
+
 # Test CSV parsing (no API cost)
 node test-local.js --y=2025 --m=10
 
 # Run full processing
 node index.js --y=2025 --m=10
 
+# Export bundle for accountant
+node export-bundle.js --y=2025 --m=10
+
 # Help
 node index.js --help
+
+CONFIGURATION FILES (project root)
+────────────────────────────────────────────────────────────────
+exclusions.txt              Transactions to exclude entirely
+personal-exceptions.txt     Route to personal account
+ignore-words.txt            Vendor name cleanup patterns
+grouping-rules.txt          Auto-group related transactions
+config.js                   OpenAI settings and thresholds
 
 OUTPUT
 ────────────────────────────────────────────────────────────────
 data/2025-10/out/
-├── 2025-10.xlsx          # Main spreadsheet (2 sheets)
-├── company-account.csv   # Debug CSV
-├── personal-account.csv  # Debug CSV
-└── cache.json            # Invoice cache
+├── 2025-10.xlsx             # Main spreadsheet (2 sheets)
+├── company-account.csv      # Debug CSV
+├── personal-account.csv     # Debug CSV
+└── cache.json               # Invoice cache
+
+data/2025-10/nitida-export-2025-10/  # Export bundle
+├── *.csv                    # Input CSVs
+├── paper/                   # Invoice photos
+├── digital/                 # PDF invoices
+└── nitida-2025-10.xlsx      # Renamed output
 
 COST
 ────────────────────────────────────────────────────────────────
 Typical monthly run: $0.01 - $0.05
-Budget limit: 200k tokens (auto-abort if exceeded)
+Budget limit: 500k tokens (auto-abort if exceeded)
 
 WORKFLOW
 ────────────────────────────────────────────────────────────────
-1. Test prompts in ChatGPT UI (zero cost)
-2. Refine until perfect
-3. Add API key and run CLI
-4. Review output Excel file
-5. Adjust config.js if needed
+1. Create month structure with create-month.js
+2. Add CSV files to inputs/
+3. Add invoices to inputs/paper/ and inputs/digital/
+4. Test CSV parsing with test-local.js (free)
+5. Run full processing with index.js
+6. Review output Excel file
+7. Export bundle with export-bundle.js
+8. Send export folder to accountant
 
 DOCUMENTATION
 ────────────────────────────────────────────────────────────────
 README.md    → Full documentation
-PROMPTS.md   → Test prompts in ChatGPT UI first
+NOTES.md     → Development notes and known issues
