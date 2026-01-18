@@ -39,5 +39,10 @@ export const CONFIG = {
   cacheInvoices: true,
 
   // currency conversion
-  usd2eur: 0.95
+  usd2eur: 0.95,
+
+  // company info
+  company: {
+    name: 'nitida',
+  },
 };

@@ -91,6 +91,30 @@ node index.js --y=2025 --m=10
 node index.js --year=2025 --month=10
 ```
 
+### Export bundle for accountant
+
+```bash
+node export-bundle.js --y=2025 --m=10
+```
+
+Creates `data/YYYY-MM/export/` with all input files (keeping `digital/` and `paper/` structure), excluding JSON caches, plus the month XLSX renamed to `<company>-YYYY-MM.xlsx`.
+
+### Ignore words and personal exceptions
+
+You can adjust matching and routing using these files in the project root:
+
+- `ignore-words.txt` - words removed from vendor names for matching only (does not change the XLS output).
+- `exclusions.txt` - transactions to exclude entirely (matched against the raw description).
+- `personal-exceptions.txt` - transactions that should move to the personal account (e.g., `LEVANTAMENTO*`, `*DESPESAS*`), matched against the raw description.
+
+### Create new month structure
+
+```bash
+node create-month.js --y=2025 --m=10
+```
+
+Creates `data/YYYY-MM/inputs/{paper,digital}`, `data/YYYY-MM/out`, and a starter `params.yml` if missing.
+
 ### Help
 
 ```bash
@@ -111,10 +135,10 @@ The tool generates files in `data/YYYY-MM/out/`:
 
 ### Column structure (both sheets)
 
-| Data       | Fornecedor    | Valor  | Factura    | Observações              |
-|------------|---------------|--------|------------|--------------------------|
-| 15/10/2025 | Amazon        | 57.81  | INV-12345  | Match score: 87.3        |
-| 20/10/2025 | Digital Ocean | 6.98   |            |                          |
+| Data       | Fornecedor    | Valor  | Factura    | Ficheiro             | Observações              |
+|------------|---------------|--------|------------|----------------------|--------------------------|
+| 15/10/2025 | Amazon        | 57.81  | INV-12345  | invoice_123.pdf      | Match score: 87.3        |
+| 20/10/2025 | Digital Ocean | 6.98   |            |                      |                          |
 
 - Yellow highlighting for rows missing invoices (company sheet)
 - TOTAL row summing Valor (personal sheet)
