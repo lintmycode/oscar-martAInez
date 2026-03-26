@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "oscar-martAInez - AI-powered monthly accounting automation",
   "main": "index.js",
+  "bin": {
+    "oscar": "./index.js"
+  },
   "type": "module",
   "scripts": {
     "start": "node index.js",
