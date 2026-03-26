@@ -3,6 +3,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { CONFIG } from './config.js';
+import { resolvePaths } from './lib/paths.js';
 
 async function main() {
   console.log('AI Invoice Export Bundle');
@@ -11,11 +12,10 @@ async function main() {
   try {
     const params = parseArgs();
     const monthStr = `${params.year}-${String(params.month).padStart(2, '0')}`;
-    const monthDir = path.join(process.cwd(), 'data', monthStr);
-    const inputsDir = path.join(monthDir, 'inputs');
-    const outDir = path.join(monthDir, 'out');
+    const { monthDir, inputsDir, xlsxPath } = resolvePaths(monthStr);
     const companyName = sanitizeName(CONFIG.company?.name || 'company');
     const exportFolderName = `${companyName}-export-${monthStr}`;
+    // Export bundle lives inside monthDir (which may be an external data root)
     const exportDir = path.join(monthDir, exportFolderName);
 
     await fs.mkdir(exportDir, { recursive: true });
@@ -23,10 +23,9 @@ async function main() {
     const copied = await copyInputsStructured(inputsDir, exportDir);
 
     const exportXlsxName = `${companyName}-${monthStr}.xlsx`;
-    const xlsxPath = path.join(outDir, `${monthStr}.xlsx`);
     await copyIfExists(xlsxPath, path.join(exportDir, exportXlsxName));
 
-    console.log(`\nExported ${copied} input files + ${exportXlsxName} to data/${monthStr}/${exportFolderName}/`);
+    console.log(`\nExported ${copied} input files + ${exportXlsxName} to ${exportDir}/`);
     console.log('='.repeat(60));
   } catch (error) {
     console.error(`\n❌ Error: ${error.message}\n`);
@@ -97,21 +96,25 @@ function parseArgs() {
       year = parseInt(arg.split('=')[1]);
     } else if (arg.startsWith('--month=') || arg.startsWith('--m=')) {
       month = parseInt(arg.split('=')[1]);
+    } else if (arg.startsWith('--data-root=')) {
+      process.env.OSCAR_DATA_ROOT = arg.split('=').slice(1).join('=');
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
 AI Invoice Export Bundle - Package files for accountant delivery
 
-Usage: node export-bundle.js --year=YYYY --month=MM
+Usage: node export-bundle.js --year=YYYY --month=MM [--data-root=PATH]
 
 Options:
-  --year=YYYY, --y=YYYY    Year (e.g., 2025)
-  --month=MM, --m=MM       Month (1-12)
-  --help, -h               Show this help
+  --year=YYYY, --y=YYYY        Year (e.g., 2025)
+  --month=MM, --m=MM           Month (1-12)
+  --data-root=PATH             Override data directory (default: ./data)
+  --help, -h                   Show this help
 
 Example:
   node export-bundle.js --y=2025 --m=10
+  node export-bundle.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
 
-This will create data/2025-10/<company>-export-2025-10/ containing:
+This will create <data-root>/2025-10/<company>-export-2025-10/ containing:
   - All CSV files from inputs/
   - All files from inputs/paper/ (invoice photos)
   - All files from inputs/digital/ (PDF invoices)

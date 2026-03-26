@@ -14,6 +14,7 @@ import { TokenTracker } from './lib/token-tracker.js';
 import { PersonalExceptionFilter } from './lib/personal-exception-filter.js';
 import { ExclusionFilter } from './lib/exclusion-filter.js';
 import { TransactionGrouper } from './lib/transaction-grouper.js';
+import { resolvePaths, resolveConfigPaths } from './lib/paths.js';
 
 /**
  * Main CLI entry point
@@ -29,9 +30,8 @@ async function main() {
     console.log(`\nTarget month: ${monthStr}`);
 
     // 2. Set up paths for this month
-    const monthDir = path.join(process.cwd(), 'data', monthStr);
-    const inputsDir = path.join(monthDir, 'inputs');
-    const outDir = path.join(monthDir, 'out');
+    const { monthDir, inputsDir, outDir, paramsPath, xlsxPath, paperDir, digitalDir } = resolvePaths(monthStr);
+    const { exclusionsFile, personalExceptionsFile, ignoreWordsFile, groupingFile } = resolveConfigPaths();
 
     // 3. Check month directory exists
     try {
@@ -49,7 +49,6 @@ async function main() {
     await fs.mkdir(outDir, { recursive: true });
 
     // 4b. Read optional params.yml for additional settings (e.g., remain)
-    const paramsPath = path.join(monthDir, 'params.yml');
     let personalRemain = 0;
     try {
       const paramsRaw = await fs.readFile(paramsPath, 'utf8');
@@ -78,7 +77,6 @@ async function main() {
     }
 
     // 6. Load vendor ignore words (optional)
-    const ignoreWordsFile = path.join(process.cwd(), 'ignore-words.txt');
     await TransactionExtractor.loadIgnoreWords(ignoreWordsFile);
 
     // 7. Extract transactions from CSVs (from data/YYYY-MM/inputs/*.csv)
@@ -93,19 +91,16 @@ async function main() {
 
     // 7b. Apply exclusion filter
     const exclusionFilter = new ExclusionFilter();
-    const exclusionsFile = path.join(process.cwd(), 'exclusions.txt');
     await exclusionFilter.load(exclusionsFile);
     transactions = exclusionFilter.filter(transactions);
 
     // 7c. Group related transactions (e.g., Via Verde tolls)
     const grouper = new TransactionGrouper();
-    const groupingFile = path.join(process.cwd(), 'grouping-rules.txt');
     await grouper.load(groupingFile);
     transactions = grouper.group(transactions);
 
     // 7d. Move personal exceptions out of company transactions
     const personalExceptionFilter = new PersonalExceptionFilter();
-    const personalExceptionsFile = path.join(process.cwd(), 'personal-exceptions.txt');
     await personalExceptionFilter.load(personalExceptionsFile);
     const split = personalExceptionFilter.split(transactions);
     const personalExceptionRows = split.personal.map(txn => ({
@@ -121,8 +116,6 @@ async function main() {
     // 7. Extract invoice data (from data/YYYY-MM/inputs/paper/ and data/YYYY-MM/inputs/digital/)
     // Cached data saved as sidecar JSON files (e.g., invoice.pdf -> invoice.json)
     const invoiceExtractor = new InvoiceExtractor(openaiClient, tokenTracker);
-    const paperDir = path.join(inputsDir, 'paper');
-    const digitalDir = path.join(inputsDir, 'digital');
 
     const invoices = await invoiceExtractor.extractAll(
       paperDir,
@@ -141,7 +134,6 @@ async function main() {
 
     // 10. Generate XLSX (saved to data/YYYY-MM/out/)
     const generator = new XlsxGenerator();
-    const xlsxPath = path.join(outDir, `${monthStr}.xlsx`);
 
     await generator.generate(companyRows, personalRows, xlsxPath, { personalRemain });
 
@@ -187,27 +179,38 @@ function parseArgs() {
       year = parseInt(arg.split('=')[1]);
     } else if (arg.startsWith('--month=') || arg.startsWith('--m=')) {
       month = parseInt(arg.split('=')[1]);
+    } else if (arg.startsWith('--data-root=')) {
+      // Set env var so lib/paths.js picks it up
+      process.env.OSCAR_DATA_ROOT = arg.split('=').slice(1).join('=');
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
 oscar-martAInez - Process monthly accounting sheets
 
-Usage: node index.js --year=YYYY --month=MM
+Usage: node index.js --year=YYYY --month=MM [--data-root=PATH]
 
 Options:
-  --year=YYYY, --y=YYYY    Year (e.g., 2025)
-  --month=MM, --m=MM       Month (1-12)
-  --help, -h               Show this help
+  --year=YYYY, --y=YYYY        Year (e.g., 2025)
+  --month=MM, --m=MM           Month (1-12)
+  --data-root=PATH             Override data directory (default: ./data)
+  --help, -h                   Show this help
 
-Example:
+Data root resolution order:
+  1. --data-root=<path> CLI flag
+  2. OSCAR_DATA_ROOT environment variable
+  3. ./data (default, relative to cwd)
+
+Examples:
   node index.js --y=2025 --m=10
+  node index.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
+  OSCAR_DATA_ROOT=/mnt/echo-ops/tmp/data node index.js --y=2025 --m=10
 
 This will:
-  1. Extract transactions from CSV files in data/2025-10/inputs/
+  1. Extract transactions from CSV files in <data-root>/2025-10/inputs/
   2. Extract invoice data from paper/ and digital/ subdirectories
   3. Apply filters (exclusions.txt, personal-exceptions.txt)
   4. Group related transactions (grouping-rules.txt)
   5. Match invoices to transactions using AI
-  6. Generate data/2025-10/out/2025-10.xlsx with company and personal sheets
+  6. Generate <data-root>/2025-10/out/2025-10.xlsx with company and personal sheets
 
 Additional commands:
   node create-month.js --y=2025 --m=10     Create month folder structure

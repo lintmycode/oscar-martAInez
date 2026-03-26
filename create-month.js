@@ -2,6 +2,7 @@
 
 import fs from 'fs/promises';
 import path from 'path';
+import { resolvePaths } from './lib/paths.js';
 
 async function main() {
   console.log('AI Invoice Month Setup');
@@ -10,20 +11,16 @@ async function main() {
   try {
     const params = parseArgs();
     const monthStr = `${params.year}-${String(params.month).padStart(2, '0')}`;
-    const monthDir = path.join(process.cwd(), 'data', monthStr);
-    const inputsDir = path.join(monthDir, 'inputs');
-    const paperDir = path.join(inputsDir, 'paper');
-    const digitalDir = path.join(inputsDir, 'digital');
-    const outDir = path.join(monthDir, 'out');
+    const { paperDir, digitalDir, outDir, paramsPath } = resolvePaths(monthStr);
 
     await fs.mkdir(paperDir, { recursive: true });
     await fs.mkdir(digitalDir, { recursive: true });
     await fs.mkdir(outDir, { recursive: true });
 
-    const paramsPath = path.join(monthDir, 'params.yml');
     await ensureParams(paramsPath, params.year, params.month);
 
-    console.log(`\n✅ Month structure ready: data/${monthStr}/`);
+    const dataRoot = process.env.OSCAR_DATA_ROOT || 'data';
+    console.log(`\n✅ Month structure ready: ${dataRoot}/${monthStr}/`);
     console.log('='.repeat(60));
   } catch (error) {
     console.error(`\n❌ Error: ${error.message}\n`);
@@ -51,27 +48,31 @@ function parseArgs() {
       year = parseInt(arg.split('=')[1]);
     } else if (arg.startsWith('--month=') || arg.startsWith('--m=')) {
       month = parseInt(arg.split('=')[1]);
+    } else if (arg.startsWith('--data-root=')) {
+      process.env.OSCAR_DATA_ROOT = arg.split('=').slice(1).join('=');
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
 AI Invoice Month Setup - Create folder structure for a new month
 
-Usage: node create-month.js --year=YYYY --month=MM
+Usage: node create-month.js --year=YYYY --month=MM [--data-root=PATH]
 
 Options:
-  --year=YYYY, --y=YYYY    Year (e.g., 2025)
-  --month=MM, --m=MM       Month (1-12)
-  --help, -h               Show this help
+  --year=YYYY, --y=YYYY        Year (e.g., 2025)
+  --month=MM, --m=MM           Month (1-12)
+  --data-root=PATH             Override data directory (default: ./data)
+  --help, -h                   Show this help
 
 Example:
   node create-month.js --y=2025 --m=10
+  node create-month.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
 
 This will create:
-  data/2025-10/inputs/paper/      For invoice photos
-  data/2025-10/inputs/digital/    For PDF invoices
-  data/2025-10/out/               For generated outputs
-  data/2025-10/params.yml         Month configuration
+  <data-root>/2025-10/inputs/paper/      For invoice photos
+  <data-root>/2025-10/inputs/digital/    For PDF invoices
+  <data-root>/2025-10/out/               For generated outputs
+  <data-root>/2025-10/params.yml         Month configuration
 
-After running this, add your CSV files to data/2025-10/inputs/
+After running this, add your CSV files to <data-root>/2025-10/inputs/
 and invoice documents to the paper/ and digital/ subdirectories.
 `);
       process.exit(0);
