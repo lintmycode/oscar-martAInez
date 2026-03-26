@@ -110,7 +110,29 @@ node index.js --year=2025 --month=10
 node export-bundle.js --y=2025 --m=10
 ```
 
-Creates `data/YYYY-MM/<company>-export-YYYY-MM/` with all input files (keeping `digital/` and `paper/` structure), excluding JSON caches, plus the month XLSX renamed to `<company>-YYYY-MM.xlsx`.
+Creates `<data-root>/YYYY-MM/<company>-export-YYYY-MM/` with all input files (keeping `digital/` and `paper/` structure), excluding JSON caches, plus the month XLSX renamed to `<company>-YYYY-MM.xlsx`.
+
+### Using an external data directory
+
+By default all month data lives in `./data/` (relative to the project directory). You can point any command at an external path using `--data-root` or the `OSCAR_DATA_ROOT` environment variable. Resolution order:
+
+1. `--data-root=<path>` CLI flag
+2. `OSCAR_DATA_ROOT` environment variable
+3. `./data` (default — existing behavior unchanged)
+
+```bash
+# Via flag
+node index.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
+node create-month.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
+node export-bundle.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
+node test-local.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
+
+# Via env var (applies to all commands in the session)
+export OSCAR_DATA_ROOT=/mnt/echo-ops/tmp/data
+node index.js --y=2025 --m=10
+```
+
+Configuration files (`exclusions.txt`, `personal-exceptions.txt`, `ignore-words.txt`, `grouping-rules.txt`) always stay in the project root — they are code config, not month data.
 
 ### Transaction filtering and routing
 
