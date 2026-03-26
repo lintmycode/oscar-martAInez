@@ -9,6 +9,7 @@ import { ExclusionFilter } from './lib/exclusion-filter.js';
 import { TransactionGrouper } from './lib/transaction-grouper.js';
 import fs from 'fs/promises';
 import path from 'path';
+import { resolvePaths, resolveConfigPaths } from './lib/paths.js';
 
 async function test() {
   // Parse CLI arguments
@@ -21,6 +22,8 @@ async function test() {
       year = parseInt(arg.split('=')[1]);
     } else if (arg.startsWith('--month=') || arg.startsWith('--m=')) {
       month = parseInt(arg.split('=')[1]);
+    } else if (arg.startsWith('--data-root=')) {
+      process.env.OSCAR_DATA_ROOT = arg.split('=').slice(1).join('=');
     }
   }
 
@@ -33,9 +36,8 @@ async function test() {
   const monthStr = `${year}-${String(month).padStart(2, '0')}`;
   console.log(`Testing CSV extraction for ${monthStr} (no API calls)...\n`);
 
-  const monthDir = path.join(process.cwd(), 'data', monthStr);
-  const inputsDir = path.join(monthDir, 'inputs');
-  const outDir = path.join(monthDir, 'out');
+  const { inputsDir, outDir } = resolvePaths(monthStr);
+  const { exclusionsFile, groupingFile } = resolveConfigPaths();
   const targetMonth = { year, month };
 
   try {
@@ -46,13 +48,11 @@ async function test() {
 
     // Apply exclusion filter
     const exclusionFilter = new ExclusionFilter();
-    const exclusionsFile = path.join(process.cwd(), 'exclusions.txt');
     await exclusionFilter.load(exclusionsFile);
     transactions = exclusionFilter.filter(transactions);
 
     // Group related transactions
     const grouper = new TransactionGrouper();
-    const groupingFile = path.join(process.cwd(), 'grouping-rules.txt');
     await grouper.load(groupingFile);
     transactions = grouper.group(transactions);
 
