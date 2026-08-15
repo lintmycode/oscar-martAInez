@@ -9,7 +9,9 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "echo \"No tests yet\" && exit 0",
+    "gmail:auth": "node gmail-auth-setup.js",
+    "poll-inbox": "node poll-inbox.js"
   },
   "keywords": [
     "accounting",
@@ -22,10 +24,12 @@
   "dependencies": {
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
+    "googleapis": "^144.0.0",
     "js-yaml": "^4.1.0",
     "jschardet": "^3.1.4",
     "openai": "^4.77.0",
     "pdf-parse": "^1.1.1",
+    "puppeteer-core": "^23.9.0",
     "sharp": "^0.33.5",
     "string-similarity": "^4.0.4"
   }

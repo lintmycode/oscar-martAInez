@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
-import fs from 'fs/promises';
-import path from 'path';
-import { resolvePaths } from './lib/paths.js';
+import { ensureMonthScaffold } from './lib/month-scaffold.js';
 
 async function main() {
   console.log('AI Invoice Month Setup');
@@ -11,13 +9,7 @@ async function main() {
   try {
     const params = parseArgs();
     const monthStr = `${params.year}-${String(params.month).padStart(2, '0')}`;
-    const { paperDir, digitalDir, outDir, paramsPath } = resolvePaths(monthStr);
-
-    await fs.mkdir(paperDir, { recursive: true });
-    await fs.mkdir(digitalDir, { recursive: true });
-    await fs.mkdir(outDir, { recursive: true });
-
-    await ensureParams(paramsPath, params.year, params.month);
+    await ensureMonthScaffold(monthStr);
 
     const dataRoot = process.env.OSCAR_DATA_ROOT || 'data';
     console.log(`\n✅ Month structure ready: ${dataRoot}/${monthStr}/`);
@@ -25,16 +17,6 @@ async function main() {
   } catch (error) {
     console.error(`\n❌ Error: ${error.message}\n`);
     process.exit(1);
-  }
-}
-
-async function ensureParams(paramsPath, year, month) {
-  try {
-    await fs.access(paramsPath);
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    const content = `year: ${year}\nmonth: ${month}\n`;
-    await fs.writeFile(paramsPath, content);
   }
 }
 

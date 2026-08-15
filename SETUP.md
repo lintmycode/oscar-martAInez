@@ -141,6 +141,64 @@ matching: {
 
 The tool caches invoice extractions in `data/YYYY-MM/out/cache.json` - unchanged files are never reprocessed.
 
+## Email Intake (optional)
+
+Instead of manually dropping invoice files into `data/tmp/`, `poll-inbox.js` can watch a
+dedicated Gmail inbox and file attachments straight into the right
+`data/YYYY-MM/inputs/{paper,digital}/` folder automatically. It reuses the same
+date-extraction as the monthly run, so a filed invoice is never re-extracted later - only
+routing happens here, `index.js`/`export-bundle.js` still run manually as before.
+
+### One-time setup
+
+1. Create a dedicated Gmail account for invoice intake (e.g. forward or CC receipts to it
+   as they arrive). Currently wired to `nitidaops@gmail.com`.
+2. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an
+   OAuth client of type **Desktop app** with the Gmail API enabled, and set
+   `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` in `.env` from it.
+3. Run the one-time browser auth flow (opens a URL to approve access, saves a refresh token
+   to `.gmail-token.json` - gitignored, never expires unless you revoke access):
+
+```bash
+npm run gmail:auth
+```
+
+4. Test it manually:
+
+```bash
+npm run poll-inbox
+```
+
+Any email in that inbox with an unread PDF/JPG/PNG/HEIC attachment gets filed and labeled
+`Oscar/Processed` + marked read, so it's never picked up twice. HEIC photos (iPhone default)
+are converted to JPEG via macOS `sips` before filing. Anything whose invoice date can't be
+determined is left in `data/tmp/needs-review/` and logged instead of guessed.
+
+Emails with **no attachment** (HTML-only receipts, e.g. Apple's) only get rendered to PDF and
+processed if their subject matches a pattern in `email-invoice-subjects.txt` (wildcard `*`
+patterns, same style as `exclusions.txt`) - add a line there whenever a new HTML-only vendor
+shows up. Anything not listed is left unread rather than rendered, since rendering runs
+headless Chrome + OpenAI on the email's actual content.
+
+### Running on a schedule
+
+A launchd job (`launchd/com.nitida.oscar.pollinbox.plist`) polls every 10 minutes:
+
+```bash
+cp launchd/com.nitida.oscar.pollinbox.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nitida.oscar.pollinbox.plist
+```
+
+Logs land in `logs/poll-inbox.log` / `logs/poll-inbox.error.log`. To stop it:
+
+```bash
+launchctl bootout gui/$(id -u)/com.nitida.oscar.pollinbox
+```
+
+**Caveat**: the plist points at a specific nvm-managed Node binary path
+(`~/.nvm/versions/node/v24.16.0/bin/node`). If you upgrade Node via nvm, update that path in
+the plist and re-bootstrap, or the scheduled runs will silently fail (check the error log).
+
 ## Multiple Months
 
 You can manage multiple months easily:
