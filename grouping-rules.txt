@@ -9,7 +9,10 @@
 # Blank lines are ignored
 
 # Via Verde tolls - multiple small charges, one monthly invoice
+# Two patterns because the bank labels these inconsistently (BX VALOR vs VIA VERDE);
+# both map to the same display name so they merge into a single grouped row
 BX VALOR* → Via Verde Tolls → *Via Verde*
+VIA VERDE* → Via Verde Tolls → *Via Verde*
 
 # Examples (commented out):
 # PARKING* → Monthly Parking → *Parking*

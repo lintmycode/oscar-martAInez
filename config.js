@@ -3,14 +3,16 @@ export const CONFIG = {
   // OpenAI API settings
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
-    model: 'gpt-4o-mini', // Cheapest multimodal model
+    model: 'gpt-4o-mini', // Options: 'gpt-4o-mini', 'gpt-4o', 'o1-mini'
     maxTokensPerRequest: 2000, // Hard limit per request
+    // Rate limits (free tier): 200k TPM, 500 RPM
+    // Rate limits (tier 1): 2M TPM, 500 RPM
   },
 
   // Cost control
   budget: {
-    maxTokensPerRun: 500000, // Abort if exceeded
-    warningThreshold: 450000, // Warn at 75%
+    maxTokensPerRun: 1000000, // Abort if exceeded
+    warningThreshold: 950000, // Warn at 75%
   },
 
   // Pricing (USD per 1M tokens) - update from OpenAI pricing page
@@ -22,6 +24,10 @@ export const CONFIG = {
     'gpt-4o': {
       input: 2.50,
       output: 10.00,
+    },
+    'o1-mini': {
+      input: 3.00,
+      output: 12.00,
     },
   },
 
@@ -39,7 +45,11 @@ export const CONFIG = {
   cacheInvoices: true,
 
   // currency conversion
-  usd2eur: 0.95,
+  // Static approximation, not live FX - was 0.95 but that no longer reflects
+  // reality; recalibrated from 6 actual USD invoice vs EUR-charged-amount pairs
+  // (DigitalOcean + OpenAI, Apr-Jun 2026), which clustered at 0.857-0.881.
+  // Still drifts over time - a live FX rate lookup would be the real fix.
+  usd2eur: 0.87,
 
   // company info
   company: {

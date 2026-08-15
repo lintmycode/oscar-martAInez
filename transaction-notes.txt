@@ -1,0 +1,19 @@
+# Transaction Notes
+# Lines starting with # are comments
+# Supports wildcards with * (matches any characters)
+# Matches against the transaction description (case-insensitive)
+#
+# Format: PATTERN → NOTE
+#
+# Applies an explanatory note to matching company-account transactions that
+# will never have an invoice (bank errors, corrections, returned transfers,
+# etc.) - keeps them visible in the sheet with context instead of looking
+# like an unexplained gap. Only applied to rows not already matched to an
+# invoice.
+
+ERRO TRANSFERENCIA* → Wrongly transferred to this account by sender; returned same month (see incoming TRF RV credit around the same date)
+DISPONIBILIZACAO DE UM CARTAO DE CREDITO* → Card issuance/annual fee charged by the bank; no invoice expected
+
+# "WWW.AMAZON *" (space, not asterisk, right after AMAZON) matches only the
+# generic refund-credit lines - not "WWW.AMAZON*<order-id>" purchase lines
+WWW.AMAZON * → Amazon partial refund - flag for credit note (nota de crédito) from Amazon

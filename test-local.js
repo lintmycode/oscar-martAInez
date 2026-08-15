@@ -41,10 +41,8 @@ async function test() {
   const targetMonth = { year, month };
 
   try {
-    let transactions = await TransactionExtractor.extractFromDirectory(
-      inputsDir,
-      targetMonth
-    );
+    // Extract transactions for target month (processes all CSVs but filters by month)
+    let transactions = await TransactionExtractor.extractFromDirectory(inputsDir, targetMonth);
 
     // Apply exclusion filter
     const exclusionFilter = new ExclusionFilter();

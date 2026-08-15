@@ -14,6 +14,7 @@ import { TokenTracker } from './lib/token-tracker.js';
 import { PersonalExceptionFilter } from './lib/personal-exception-filter.js';
 import { ExclusionFilter } from './lib/exclusion-filter.js';
 import { TransactionGrouper } from './lib/transaction-grouper.js';
+import { TransactionNotes } from './lib/transaction-notes.js';
 import { resolvePaths, resolveConfigPaths } from './lib/paths.js';
 
 /**
@@ -31,7 +32,7 @@ async function main() {
 
     // 2. Set up paths for this month
     const { monthDir, inputsDir, outDir, paramsPath, xlsxPath, paperDir, digitalDir } = resolvePaths(monthStr);
-    const { exclusionsFile, personalExceptionsFile, ignoreWordsFile, groupingFile } = resolveConfigPaths();
+    const { exclusionsFile, personalExceptionsFile, ignoreWordsFile, groupingFile, transactionNotesFile } = resolveConfigPaths();
 
     // 3. Check month directory exists
     try {
@@ -48,20 +49,42 @@ async function main() {
     // 4. Ensure output directory exists
     await fs.mkdir(outDir, { recursive: true });
 
-    // 4b. Read optional params.yml for additional settings (e.g., remain)
+    // 4b. Determine personal carryover ("remain"): the balance the company still
+    // owes for personal-funded expenses. Auto-detected from the previous month's
+    // summary.json, but an explicit `remain:` in this month's params.yml always wins.
     let personalRemain = 0;
+    let remainSource = 'default (no prior month found, starting at €0)';
+
+    const prevMonthStr = getPrevMonthStr(params.year, params.month);
+    const { outDir: prevOutDir } = resolvePaths(prevMonthStr);
+    try {
+      const prevSummaryRaw = await fs.readFile(path.join(prevOutDir, 'summary.json'), 'utf8');
+      const prevSummary = JSON.parse(prevSummaryRaw);
+      if (Number.isFinite(prevSummary.personalTotalCombined)) {
+        personalRemain = prevSummary.personalTotalCombined;
+        remainSource = `auto-carried from ${prevMonthStr} (€${personalRemain.toFixed(2)})`;
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.warn(`Warning: Could not read ${prevMonthStr}/out/summary.json: ${error.message}`);
+      }
+    }
+
     try {
       const paramsRaw = await fs.readFile(paramsPath, 'utf8');
       const paramsYaml = yaml.load(paramsRaw) || {};
       const parsedRemain = Number(paramsYaml.remain);
       if (Number.isFinite(parsedRemain)) {
         personalRemain = parsedRemain;
+        remainSource = `override from params.yml (€${personalRemain.toFixed(2)})`;
       }
     } catch (error) {
       if (error.code !== 'ENOENT') {
         throw error;
       }
     }
+
+    console.log(`Personal carryover (remain): ${remainSource}`);
 
     // 5. Initialize OpenAI client (optional for now)
     const tokenTracker = new TokenTracker();
@@ -80,6 +103,8 @@ async function main() {
     await TransactionExtractor.loadIgnoreWords(ignoreWordsFile);
 
     // 7. Extract transactions from CSVs (from data/YYYY-MM/inputs/*.csv)
+    // Note: Processes ALL CSVs (e.g., Jan+Feb for January) but saves only target month transactions
+    // This handles CC billing cycles that span months while keeping output clean
     let transactions = await TransactionExtractor.extractFromDirectory(
       inputsDir,
       { year: params.year, month: params.month }
@@ -88,6 +113,11 @@ async function main() {
     if (transactions.length === 0) {
       throw new Error('No transactions found for the specified month');
     }
+
+    console.log(`\nExtracted ${transactions.length} movements for ${monthStr}`);
+    console.log('  - All will be inserted as company expenses');
+    console.log('  - Then matched against invoices');
+    console.log('  - Unmatched invoices → personal account\n');
 
     // 7b. Apply exclusion filter
     const exclusionFilter = new ExclusionFilter();
@@ -127,7 +157,23 @@ async function main() {
     const { matched, unmatched } = matcher.matchAll(invoices, transactions);
 
     // 9. Generate sheets
+    // Company account: ALL movements from CSVs (matched with invoices)
     const companyRows = matcher.applyMatches(transactions, matched);
+
+    // 9b. Apply explanatory notes to unmatched rows that will never have an
+    // invoice (bank errors, returned transfers, etc.) - see transaction-notes.txt
+    const transactionNotes = new TransactionNotes();
+    await transactionNotes.load(transactionNotesFile);
+    for (const row of companyRows) {
+      if (!row.notes) {
+        const note = transactionNotes.getNote(row.rawDescription || row.vendor);
+        if (note) row.notes = note;
+      }
+    }
+
+    // Personal account:
+    // - Personal exceptions (e.g., DESPESAS, LEVANTAMENTO)
+    // - Unmatched invoices (invoices without a corresponding movement)
     const personalRows = personalExceptionRows.concat(
       matcher.createPersonalSheet(unmatched)
     );
@@ -139,6 +185,30 @@ async function main() {
 
     // 11. Export debug CSVs (saved to data/YYYY-MM/out/)
     await generator.exportCsv(companyRows, personalRows, outDir);
+
+    // 11b. Write summary.json - machine-readable run report, and the source
+    // the NEXT month's run reads to auto-carry the personal balance forward
+    const personalTotalCorrente = personalRows.reduce((sum, r) => sum + r.amount, 0);
+    const personalTotalCombined = personalTotalCorrente + personalRemain;
+    const cost = tokenTracker.calculateCost();
+
+    const summary = {
+      month: monthStr,
+      generatedAt: new Date().toISOString(),
+      companyRows: companyRows.length,
+      matchedInvoices: matched.length,
+      unmatchedInvoices: unmatched.length,
+      personalRows: personalRows.length,
+      invoices: invoices.length,
+      personalRemainUsed: personalRemain,
+      personalTotalCorrente,
+      personalTotalCombined,
+      tokensUsed: tokenTracker.totalInput + tokenTracker.totalOutput,
+      estimatedCostUsd: cost.total,
+    };
+
+    await fs.writeFile(path.join(outDir, 'summary.json'), JSON.stringify(summary, null, 2));
+    console.log(`📊 Summary saved: data/${monthStr}/out/summary.json`);
 
     // 12. Print token usage report
     if (openaiClient) {
@@ -164,6 +234,15 @@ async function main() {
     console.error(`\n❌ Error: ${error.message}\n`);
     process.exit(1);
   }
+}
+
+/**
+ * Get the previous month string (e.g. "2026-04" -> "2026-03"), handling year rollover
+ */
+function getPrevMonthStr(year, month) {
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  return `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
 }
 
 /**
@@ -213,9 +292,11 @@ This will:
   6. Generate <data-root>/2025-10/out/2025-10.xlsx with company and personal sheets
 
 Additional commands:
-  node create-month.js --y=2025 --m=10     Create month folder structure
-  node export-bundle.js --y=2025 --m=10    Package files for accountant
-  node test-local.js --y=2025 --m=10       Test CSV parsing (no API cost)
+  node create-month.js --y=2025 --m=10      Create month folder structure
+  node export-bundle.js --y=2025 --m=10     Package files for accountant
+  node test-local.js --y=2025 --m=10        Test CSV parsing (no API cost)
+  node validate-images.js --y=2025 --m=10   Check/fix unsupported images
+  node validate-images.js --y=2025 --m=10 --fix   Auto-convert HEIF to JPEG
 
 Configuration files (project root):
   exclusions.txt              Transactions to exclude entirely
