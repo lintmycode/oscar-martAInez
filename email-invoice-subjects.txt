@@ -1,0 +1,13 @@
+# Subjects allowed to trigger poll-inbox.js's HTML->PDF rendering path.
+# Only used when a message has NO real pdf/jpg/png/heic attachment - i.e.
+# a forwarded HTML-only receipt (Apple-style "Fatura"/"Receipt" emails).
+# Real attachments are never subject to this check.
+#
+# Lines starting with # are comments. Supports wildcards with * (matches
+# any characters). Matched case-insensitively against the subject with
+# leading "Fwd:"/"Fw:"/"Re:" prefixes stripped first.
+#
+# Anything not matched here gets skipped and left unread rather than
+# rendered - add a line here to allow a new sender/subject pattern.
+
+Fatura da Apple*
