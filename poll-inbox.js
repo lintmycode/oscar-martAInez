@@ -52,6 +52,9 @@ const SUPPORTED_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.heic', '.heif'
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 async function main() {
+  // Resolve (and existence-check) the data root before touching Gmail, so an
+  // unmounted share fails the run without marking any message as read.
+  const dataRoot = getDataRoot();
   const auth = await getOAuthClient();
   const gmail = google.gmail({ version: 'v1', auth });
 
@@ -59,7 +62,7 @@ async function main() {
   const extractor = new InvoiceExtractor(openai, new TokenTracker());
 
   const processedLabelId = await ensureLabel(gmail, PROCESSED_LABEL);
-  const needsReviewDir = path.join(getDataRoot(), 'tmp', 'needs-review');
+  const needsReviewDir = path.join(dataRoot, 'tmp', 'needs-review');
   const subjectWhitelist = await loadSubjectWhitelist();
 
   const list = await gmail.users.messages.list({ userId: 'me', q: QUERY, maxResults: 50 });

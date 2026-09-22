@@ -120,15 +120,24 @@ By default all month data lives in `./data/` (relative to the project directory)
 2. `OSCAR_DATA_ROOT` environment variable
 3. `./data` (default — existing behavior unchanged)
 
+**Shared data root (current setup, 2026-09):** month data lives on the NAS share `echo.ops`
+so the laptop, echo and Beth all see the same folders — `/Volumes/echo.ops/oscar` on the Mac,
+`/mnt/echo-ops/oscar` on echo. Each machine sets its own path in `.env`
+(`OSCAR_DATA_ROOT=...`); every script loads `.env` through `lib/paths.js`, including
+`poll-inbox.js` under launchd. If `OSCAR_DATA_ROOT` is set but the path doesn't exist (share
+not mounted), every command fails with "is the echo.ops share mounted?" instead of silently
+writing somewhere local — the poller then fails before touching Gmail, so no email is marked
+read, and it alerts after 3 failed runs as usual.
+
 ```bash
 # Via flag
-node index.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
-node create-month.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
-node export-bundle.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
-node test-local.js --y=2025 --m=10 --data-root=/mnt/echo-ops/tmp/data
+node index.js --y=2025 --m=10 --data-root=/mnt/echo-ops/oscar
+node create-month.js --y=2025 --m=10 --data-root=/mnt/echo-ops/oscar
+node export-bundle.js --y=2025 --m=10 --data-root=/mnt/echo-ops/oscar
+node test-local.js --y=2025 --m=10 --data-root=/mnt/echo-ops/oscar
 
 # Via env var (applies to all commands in the session)
-export OSCAR_DATA_ROOT=/mnt/echo-ops/tmp/data
+export OSCAR_DATA_ROOT=/mnt/echo-ops/oscar
 node index.js --y=2025 --m=10
 ```
 

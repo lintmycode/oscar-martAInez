@@ -1,7 +1,7 @@
 # Install: Email Intake
 
 Sets up `poll-inbox.js` to watch a dedicated Gmail inbox and auto-file invoice
-attachments into `data/YYYY-MM/inputs/{paper,digital}/`. See [UNINSTALL.md](UNINSTALL.md)
+attachments into `<data-root>/YYYY-MM/inputs/{paper,digital}/` (the shared `echo.ops` NAS folder when `OSCAR_DATA_ROOT` is set in `.env` - see README "Using an external data directory"). See [UNINSTALL.md](UNINSTALL.md)
 to stop or remove it, and SETUP.md's "Email Intake" section for how it behaves once running.
 
 ## 1. Gmail account + OAuth client (one-time, manual)

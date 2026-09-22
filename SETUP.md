@@ -210,11 +210,11 @@ raises a macOS notification after **3 consecutive failed runs** (~30 min, long e
 out a closed laptop lid), and one more when polling recovers. It notifies once per outage,
 not once per run.
 
-Health state lives in `data/tmp/.poll-health.json`; delete it to reset. To check whether the
+Health state lives in `logs/.poll-health.json` (local to this machine, not the shared data root); delete it to reset. To check whether the
 poller is currently healthy:
 
 ```bash
-cat data/tmp/.poll-health.json   # absent or consecutiveFailures: 0 means healthy
+cat logs/.poll-health.json   # absent or consecutiveFailures: 0 means healthy
 launchctl print gui/$(id -u)/com.nitida.oscar.pollinbox | grep "last exit code"
 ```
 

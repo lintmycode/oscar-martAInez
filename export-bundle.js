@@ -4,7 +4,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { execSync } from 'child_process';
 import { CONFIG } from './config.js';
-import { resolvePaths } from './lib/paths.js';
+import { resolvePaths, getDataRoot } from './lib/paths.js';
 
 async function main() {
   console.log('AI Invoice Export Bundle');
@@ -30,7 +30,7 @@ async function main() {
     console.log(`\nExported ${copied} input files + ${exportXlsxName} to ${exportDir}/`);
 
     // Create zip file in data/bundles/
-    const dataRoot = process.env.OSCAR_DATA_ROOT || path.join(process.cwd(), 'data');
+    const dataRoot = getDataRoot();
     const bundlesDir = path.join(dataRoot, 'bundles');
     await fs.mkdir(bundlesDir, { recursive: true });
 
