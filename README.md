@@ -203,7 +203,9 @@ The tool generates files in `data/YYYY-MM/out/`:
 ### 2. Invoice Extraction
 
 - **PDFs**: Local text extraction first (free), Vision API only if needed
-- **Images**: OpenAI Vision API (gpt-4o-mini)
+- **Images**: OpenAI Vision API (gpt-4o-mini). Landscape photos (receipts shot sideways) are
+  rotated 90° counter-clockwise via macOS `sips` before extraction - only a temp copy, the
+  source file is untouched
 - **Caching**: MD5 hash-based, stored in `out/cache.json`
 
 ### 3. Matching Algorithm

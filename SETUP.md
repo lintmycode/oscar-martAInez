@@ -171,7 +171,9 @@ npm run poll-inbox
 
 Any email in that inbox with an unread PDF/JPG/PNG/HEIC attachment gets filed and labeled
 `Oscar/Processed` + marked read, so it's never picked up twice. HEIC photos (iPhone default)
-are converted to JPEG via macOS `sips` before filing. Anything whose invoice date can't be
+are converted to JPEG via macOS `sips` before filing. Landscape photos are treated as receipts
+shot sideways and a copy is rotated 90° counter-clockwise before extraction (the filed photo
+is left as sent). Anything whose invoice date can't be
 determined is left in `data/tmp/needs-review/` and logged instead of guessed - that still
 counts as handled, so the email is labeled and won't be re-downloaded.
 
