@@ -161,10 +161,31 @@ async function main() {
     // still hands them to the accountant.
     const invoiceExclusionFilter = new ExclusionFilter();
     await invoiceExclusionFilter.load(invoiceExclusionsFile);
-    const invoices = extractedInvoices.filter(inv => !invoiceExclusionFilter.matches(inv.source, inv.vendor));
-    if (invoices.length < extractedInvoices.length) {
-      console.log(`Excluded ${extractedInvoices.length - invoices.length} invoice(s) via ${path.basename(invoiceExclusionsFile)}`);
+    const keptInvoices = extractedInvoices.filter(inv => !invoiceExclusionFilter.matches(inv.source, inv.vendor));
+    if (keptInvoices.length < extractedInvoices.length) {
+      console.log(`Excluded ${extractedInvoices.length - keptInvoices.length} invoice(s) via ${path.basename(invoiceExclusionsFile)}`);
     }
+
+    // 7c. Drop second copies of the same document. Anthropic emails both an
+    // invoice and a payment receipt for every charge, and re-forwarded mail
+    // lands as "-1" copies - left in, the extra copy never matches and adds
+    // its amount to the personal account. The date is part of the key so two
+    // different receipts aren't merged when the extractor misreads a number
+    // (e.g. picks the vendor's NIF as the invoice number). Invoices without a
+    // number are never deduped. Files stay in inputs/ (and the export).
+    const seenInvoiceKeys = new Map();
+    const invoices = keptInvoices.filter(inv => {
+      const number = String(inv.invoiceNumber || '').replace(/[^a-z0-9]/gi, '').toUpperCase();
+      if (!number) return true;
+      const vendor = String(inv.vendor || '').replace(/[^a-z0-9]/gi, '').toUpperCase();
+      const key = [vendor, number, Number(inv.amount).toFixed(2), inv.date].join('|');
+      if (seenInvoiceKeys.has(key)) {
+        console.log(`Skipped duplicate invoice ${inv.source} (same as ${seenInvoiceKeys.get(key)})`);
+        return false;
+      }
+      seenInvoiceKeys.set(key, inv.source);
+      return true;
+    });
 
     // 8. Match invoices to transactions
     const matcher = new InvoiceMatcher(openaiClient, tokenTracker);
