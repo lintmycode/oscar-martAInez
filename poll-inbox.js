@@ -230,7 +230,7 @@ async function fileCandidate({ candidate, extractor, needsReviewDir }) {
   if (!monthStr) {
     await fs.mkdir(needsReviewDir, { recursive: true });
     const destPath = path.join(needsReviewDir, uniqueName(needsReviewDir, filedFilename));
-    await fs.rename(workingPath, destPath);
+    await moveFile(workingPath, destPath);
     console.log(
       `FLAG: could not determine an invoice date for "${filedFilename}" (from "${subject}") - left at ${destPath} for manual review.`
     );
@@ -242,14 +242,14 @@ async function fileCandidate({ candidate, extractor, needsReviewDir }) {
   const { paperDir, digitalDir } = await ensureMonthScaffold(monthStr);
   const destDir = isPdf ? digitalDir : paperDir;
   const destName = uniqueName(destDir, filedFilename);
-  await fs.rename(workingPath, path.join(destDir, destName));
+  await moveFile(workingPath, path.join(destDir, destName));
 
   // Move the sidecar cache alongside it so index.js doesn't re-spend
   // OpenAI tokens re-extracting what poll-inbox.js just extracted.
   const sidecarSrc = extractor.getSidecarPath(workingPath);
   if (await fileExists(sidecarSrc)) {
     const sidecarDestName = path.basename(destName, path.extname(destName)) + '.json';
-    await fs.rename(sidecarSrc, path.join(destDir, sidecarDestName));
+    await moveFile(sidecarSrc, path.join(destDir, sidecarDestName));
   }
 
   console.log(`Filed "${filedFilename}" -> data/${monthStr}/inputs/${isPdf ? 'digital' : 'paper'}/${destName}`);
@@ -396,6 +396,19 @@ function sanitizeFilename(name) {
 
 async function fileExists(p) {
   return fs.access(p).then(() => true).catch(() => false);
+}
+
+// fs.rename can't cross filesystems (EXDEV), and the data root is usually
+// the echo.ops SMB share while the working copy sits in the local os.tmpdir().
+// Fall back to copy + delete in that case.
+async function moveFile(src, dest) {
+  try {
+    await fs.rename(src, dest);
+  } catch (err) {
+    if (err.code !== 'EXDEV') throw err;
+    await fs.copyFile(src, dest);
+    await fs.rm(src);
+  }
 }
 
 // Avoid clobbering an existing file of the same name (e.g. two different
