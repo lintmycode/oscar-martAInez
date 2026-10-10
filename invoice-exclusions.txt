@@ -1,0 +1,14 @@
+# Invoice Exclusions
+# Lines starting with # are comments
+# Supports wildcards with * (matches any characters)
+# Matches against the invoice FILENAME or the extracted VENDOR (case-insensitive)
+#
+# For invoices that document charges already excluded from the bank side
+# (exclusions.txt), so they will never match a transaction. Without this they
+# land in the personal account as money owed to Nuno. Excluded invoices are
+# left out of matching and the sheets only - the files stay in inputs/ and
+# are still included in the accountant export bundle.
+
+# CGD monthly bank-fee invoices (fees excluded via MANUT CONTA* / IMPOSTO SELO*)
+cgd-fatura-*
+Caixa Geral de Dep*

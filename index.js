@@ -32,7 +32,7 @@ async function main() {
 
     // 2. Set up paths for this month
     const { monthDir, inputsDir, outDir, paramsPath, xlsxPath, paperDir, digitalDir } = resolvePaths(monthStr);
-    const { exclusionsFile, personalExceptionsFile, ignoreWordsFile, groupingFile, transactionNotesFile } = resolveConfigPaths();
+    const { exclusionsFile, invoiceExclusionsFile, personalExceptionsFile, ignoreWordsFile, groupingFile, transactionNotesFile } = resolveConfigPaths();
 
     // 3. Check month directory exists
     try {
@@ -147,10 +147,24 @@ async function main() {
     // Cached data saved as sidecar JSON files (e.g., invoice.pdf -> invoice.json)
     const invoiceExtractor = new InvoiceExtractor(openaiClient, tokenTracker);
 
-    const invoices = await invoiceExtractor.extractAll(
+    const extractedInvoices = await invoiceExtractor.extractAll(
       paperDir,
       digitalDir
     );
+
+    // 7b. Drop invoices for charges already excluded on the bank side (e.g.
+    // CGD monthly fee invoices - the fees themselves are excluded via
+    // MANUT CONTA*/IMPOSTO SELO* in exclusions.txt). Left in, they can never
+    // match and would land in the personal account as money owed to Nuno.
+    // Matched on filename as well as vendor, since the vendor is extracted
+    // and can be misread. The files stay in inputs/, so export-bundle.js
+    // still hands them to the accountant.
+    const invoiceExclusionFilter = new ExclusionFilter();
+    await invoiceExclusionFilter.load(invoiceExclusionsFile);
+    const invoices = extractedInvoices.filter(inv => !invoiceExclusionFilter.matches(inv.source, inv.vendor));
+    if (invoices.length < extractedInvoices.length) {
+      console.log(`Excluded ${extractedInvoices.length - invoices.length} invoice(s) via ${path.basename(invoiceExclusionsFile)}`);
+    }
 
     // 8. Match invoices to transactions
     const matcher = new InvoiceMatcher(openaiClient, tokenTracker);
