@@ -21,3 +21,6 @@ WWW.AMAZON * → Amazon partial refund - flag for credit note (nota de crédito)
 # Tax enforcement payments to the AT (Autoridade Tributária) - the bank
 # export garbles "Execução" (non-ASCII dropped), hence the wildcard
 EXECU* FISCAL* → Tax enforcement payment (execução fiscal) to the AT; no invoice - proof is the AT payment document
+
+# Garnishments (penhora) taken from the account by the AT/court - no invoice
+PENHORA* → Garnishment (penhora) debited by the AT/court; no invoice - proof is the notification of the penhora
