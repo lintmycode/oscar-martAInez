@@ -149,6 +149,8 @@ You can adjust matching and routing using these files in the project root:
 
 - **`ignore-words.txt`** - Words removed from vendor names for matching only (does not change the XLS output)
 - **`exclusions.txt`** - Transactions to exclude entirely (matched against raw description with wildcard support)
+- **`invoice-exclusions.txt`** - Invoices to leave out of matching and the sheets (matched against filename or extracted vendor), for charges already excluded on the bank side - e.g. CGD fee invoices. The files still go into the export bundle
+- **`transaction-notes.txt`** - Explanatory notes on company rows that will never have an invoice (e.g. execução fiscal payments)
 - **`personal-exceptions.txt`** - Transactions that should route to the personal account (e.g., `LEVANTAMENTO*`, `*DESPESAS*`)
 - **`grouping-rules.txt`** - Auto-group related transactions into single rows (e.g., toll charges)
 

@@ -17,3 +17,7 @@ DISPONIBILIZACAO DE UM CARTAO DE CREDITO* → Card issuance/annual fee charged b
 # "WWW.AMAZON *" (space, not asterisk, right after AMAZON) matches only the
 # generic refund-credit lines - not "WWW.AMAZON*<order-id>" purchase lines
 WWW.AMAZON * → Amazon partial refund - flag for credit note (nota de crédito) from Amazon
+
+# Tax enforcement payments to the AT (Autoridade Tributária) - the bank
+# export garbles "Execução" (non-ASCII dropped), hence the wildcard
+EXECU* FISCAL* → Tax enforcement payment (execução fiscal) to the AT; no invoice - proof is the AT payment document
