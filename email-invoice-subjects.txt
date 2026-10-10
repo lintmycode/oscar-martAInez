@@ -20,3 +20,6 @@
 Fatura da Apple*
 apple faturas*
 invoices for oscar*
+
+# PayPal payment receipts (HTML-only, e.g. WP Media / WebSP paid via PayPal)
+Recibo do seu pagamento*
