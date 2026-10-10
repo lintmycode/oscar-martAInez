@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Polls the dedicated invoice-intake Gmail account for new unread emails
 // with attachments (or forwarded HTML-only receipts, rendered to PDF here -
-// the automated version of "save email as PDF"), figures out which month
-// each invoice/receipt belongs to (reusing the same date-extraction the
-// monthly run uses), and files them straight into
+// the automated version of "save email as PDF"), including ones batch-sent
+// via Gmail's "forward as attachment" (each original email arrives as a
+// message/rfc822 .eml, handled as its own source below). Figures out which
+// month each invoice/receipt belongs to (reusing the same date-extraction
+// the monthly run uses), and files them straight into
 // data/YYYY-MM/inputs/{paper,digital}/ - the automated version of the
 // "drop into data/tmp/ and route by hand" step.
 //
@@ -25,6 +27,7 @@ import { TokenTracker } from './lib/token-tracker.js';
 import { getOAuthClient } from './lib/gmail-auth.js';
 import { getDataRoot } from './lib/paths.js';
 import { ensureMonthScaffold } from './lib/month-scaffold.js';
+import { recordFailure, recordSuccess } from './lib/alert.js';
 
 const PROCESSED_LABEL = 'Oscar/Processed';
 // Gmail-side prefilter only, to avoid re-fetching years of unrelated unread
@@ -49,6 +52,9 @@ const SUPPORTED_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.heic', '.heif'
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 async function main() {
+  // Resolve (and existence-check) the data root before touching Gmail, so an
+  // unmounted share fails the run without marking any message as read.
+  const dataRoot = getDataRoot();
   const auth = await getOAuthClient();
   const gmail = google.gmail({ version: 'v1', auth });
 
@@ -56,7 +62,7 @@ async function main() {
   const extractor = new InvoiceExtractor(openai, new TokenTracker());
 
   const processedLabelId = await ensureLabel(gmail, PROCESSED_LABEL);
-  const needsReviewDir = path.join(getDataRoot(), 'tmp', 'needs-review');
+  const needsReviewDir = path.join(dataRoot, 'tmp', 'needs-review');
   const subjectWhitelist = await loadSubjectWhitelist();
 
   const list = await gmail.users.messages.list({ userId: 'me', q: QUERY, maxResults: 50 });
@@ -64,6 +70,7 @@ async function main() {
 
   if (!messages.length) {
     console.log('No new invoice emails.');
+    await recordSuccess();
     return;
   }
 
@@ -72,74 +79,119 @@ async function main() {
   // Lazily launched only if some message actually needs HTML->PDF rendering,
   // and shared across messages in this run rather than one launch each.
   const browserRef = { current: null };
+  let infraFailures = 0;
   try {
     for (const { id: messageId } of messages) {
-      await processMessage({ gmail, messageId, extractor, processedLabelId, needsReviewDir, browserRef, subjectWhitelist });
+      infraFailures += await processMessage({ gmail, messageId, extractor, processedLabelId, needsReviewDir, browserRef, subjectWhitelist });
     }
   } finally {
     if (browserRef.current) await browserRef.current.close();
+  }
+
+  // The run didn't throw, but attachments were left unprocessed because the
+  // extraction service was down - that's still an outage worth alerting on,
+  // and it's exactly the state that used to loop silently.
+  if (infraFailures > 0) {
+    await recordFailure(`${infraFailures} attachment(s) could not be extracted`);
+  } else {
+    await recordSuccess();
   }
 }
 
 async function processMessage({ gmail, messageId, extractor, processedLabelId, needsReviewDir, browserRef, subjectWhitelist }) {
   const { data: message } = await gmail.users.messages.get({ userId: 'me', id: messageId });
-  const subject = headerValue(message.payload, 'Subject') || '(no subject)';
+  const outerSubject = headerValue(message.payload, 'Subject') || '(no subject)';
 
-  let candidates = collectAttachmentParts(message.payload)
-    .filter((p) => SUPPORTED_EXT.has(path.extname(p.filename || '').toLowerCase()))
-    .map((part) => ({
-      filename: part.filename,
-      ext: path.extname(part.filename).toLowerCase(),
-      getBuffer: () => downloadAttachment(gmail, messageId, part),
-    }));
+  // "Forward as attachment" (often used to batch-forward several selected
+  // emails at once) attaches each original message as message/rfc822 -
+  // Gmail's API hands that back already parsed into its own header+parts
+  // tree, so each one is treated as its own source with its own subject
+  // gating the whitelist below, same as if it had arrived on its own.
+  const sources = [
+    { subject: outerSubject, payload: message.payload },
+    ...collectEmbeddedMessages(message.payload),
+  ];
 
-  // No real attachment - only render+extract an HTML body if the subject is
-  // explicitly whitelisted (email-invoice-subjects.txt). This is the access
-  // control: without it, any "fwd"/"fw" subject would trigger rendering.
-  if (!candidates.length) {
-    const strippedSubject = stripSubjectPrefixes(subject);
-    if (!matchesWhitelist(strippedSubject, subjectWhitelist)) {
-      console.log(`Skipping "${subject}": no pdf/jpg/png/heic attachment, and subject isn't in email-invoice-subjects.txt.`);
-      return;
-    }
+  // The outer subject is one you type yourself when composing the forward
+  // (e.g. selecting several receipts and forwarding-as-attachment under a
+  // subject like "apple faturas") - a stronger, self-authored signal than
+  // an individual embedded email's own (vendor-controlled) subject line.
+  // Checked first: a whitelisted outer subject authorizes every source in
+  // the batch; otherwise each source still needs its own subject to match.
+  const outerAuthorized = matchesWhitelist(stripSubjectPrefixes(outerSubject), subjectWhitelist);
 
-    const htmlPart = findHtmlPart(message.payload);
-    if (htmlPart) {
-      const html = Buffer.from(htmlPart.body.data, 'base64url').toString('utf8');
-      candidates = [{
-        filename: `${slugify(strippedSubject)}.pdf`,
-        ext: '.pdf',
-        getBuffer: async () => {
-          browserRef.current = browserRef.current || (await launchBrowser());
-          return renderHtmlToPdf(browserRef.current, html);
-        },
-      }];
-    }
-  }
+  const candidates = sources.flatMap((source) =>
+    buildCandidates({ source, gmail, messageId, subjectWhitelist, outerAuthorized, browserRef })
+  );
 
   if (!candidates.length) {
-    console.log(`Skipping "${subject}": no pdf/jpg/png/heic attachment or HTML body found, left unread for manual look.`);
+    console.log(
+      `Skipping "${outerSubject}": no pdf/jpg/png/heic attachment and no whitelisted HTML body found (including inside any forwarded .eml attachments), left unread for manual look.`
+    );
     return;
   }
 
-  let filedCount = 0;
+  let handledCount = 0;
+  let infraFailures = 0;
 
   for (const candidate of candidates) {
-    const filed = await fileCandidate({ candidate, extractor, needsReviewDir, subject });
-    if (filed) filedCount += 1;
+    const result = await fileCandidate({ candidate, extractor, needsReviewDir });
+    if (result === 'infra-failure') infraFailures += 1;
+    else if (result) handledCount += 1;
   }
 
-  if (filedCount > 0) {
+  // Only label the message once nothing is left to retry. A message with a
+  // mix of filed and failed attachments stays unread so the next run can
+  // finish it - the sidecar cache means the already-extracted ones aren't
+  // paid for twice, and uniqueName() keeps the redo from overwriting.
+  if (handledCount > 0 && infraFailures === 0) {
     await gmail.users.messages.modify({
       userId: 'me',
       id: messageId,
       requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] },
     });
   }
+
+  return infraFailures;
 }
 
-async function fileCandidate({ candidate, extractor, needsReviewDir, subject }) {
-  const { ext } = candidate;
+// Real attachments in a source always qualify; an HTML body qualifies if
+// EITHER the outer batch subject was already authorized, or this source's
+// own subject is separately whitelisted.
+function buildCandidates({ source, gmail, messageId, subjectWhitelist, outerAuthorized, browserRef }) {
+  const { subject, payload } = source;
+
+  const attachmentCandidates = collectAttachmentParts(payload)
+    .filter((p) => SUPPORTED_EXT.has(path.extname(p.filename || '').toLowerCase()))
+    .map((part) => ({
+      subject,
+      filename: part.filename,
+      ext: path.extname(part.filename).toLowerCase(),
+      getBuffer: () => downloadAttachment(gmail, messageId, part),
+    }));
+
+  if (attachmentCandidates.length) return attachmentCandidates;
+
+  const strippedSubject = stripSubjectPrefixes(subject);
+  if (!outerAuthorized && !matchesWhitelist(strippedSubject, subjectWhitelist)) return [];
+
+  const htmlPart = findHtmlPart(payload);
+  if (!htmlPart) return [];
+
+  const html = Buffer.from(htmlPart.body.data, 'base64url').toString('utf8');
+  return [{
+    subject,
+    filename: `${slugify(strippedSubject)}.pdf`,
+    ext: '.pdf',
+    getBuffer: async () => {
+      browserRef.current = browserRef.current || (await launchBrowser());
+      return renderHtmlToPdf(browserRef.current, html);
+    },
+  }];
+}
+
+async function fileCandidate({ candidate, extractor, needsReviewDir }) {
+  const { ext, subject } = candidate;
   const isPdf = ext === '.pdf';
   const isHeic = ext === '.heic' || ext === '.heif';
   const buffer = await candidate.getBuffer();
@@ -161,33 +213,47 @@ async function fileCandidate({ candidate, extractor, needsReviewDir, subject }) 
     ? await extractor.extractFromPdf(workingPath)
     : await extractor.extractFromImage(workingPath);
 
+  // The extraction call itself failed (no credits, rate limit exhausted,
+  // network down) rather than the document being unreadable. Leave the
+  // email untouched so the next run retries it, and drop the temp copy -
+  // filing it under needs-review would both hide a fixable outage as a
+  // manual-review task and, since the email stays unread, re-download the
+  // same attachment under a fresh -N name every 10 minutes.
+  if (!invoice && extractor.lastFailureWasInfra) {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+    console.error(`  RETRY LATER: extraction service failed on "${filedFilename}" (from "${subject}") - leaving email unread.`);
+    return 'infra-failure';
+  }
+
   const monthStr = invoiceMonth(invoice?.date);
 
   if (!monthStr) {
     await fs.mkdir(needsReviewDir, { recursive: true });
     const destPath = path.join(needsReviewDir, uniqueName(needsReviewDir, filedFilename));
-    await fs.rename(workingPath, destPath);
+    await moveFile(workingPath, destPath);
     console.log(
       `FLAG: could not determine an invoice date for "${filedFilename}" (from "${subject}") - left at ${destPath} for manual review.`
     );
-    return false;
+    // Counts as handled: the file is parked for a human, so re-polling the
+    // email would only produce duplicate copies of something already queued.
+    return 'needs-review';
   }
 
   const { paperDir, digitalDir } = await ensureMonthScaffold(monthStr);
   const destDir = isPdf ? digitalDir : paperDir;
   const destName = uniqueName(destDir, filedFilename);
-  await fs.rename(workingPath, path.join(destDir, destName));
+  await moveFile(workingPath, path.join(destDir, destName));
 
   // Move the sidecar cache alongside it so index.js doesn't re-spend
   // OpenAI tokens re-extracting what poll-inbox.js just extracted.
   const sidecarSrc = extractor.getSidecarPath(workingPath);
   if (await fileExists(sidecarSrc)) {
     const sidecarDestName = path.basename(destName, path.extname(destName)) + '.json';
-    await fs.rename(sidecarSrc, path.join(destDir, sidecarDestName));
+    await moveFile(sidecarSrc, path.join(destDir, sidecarDestName));
   }
 
   console.log(`Filed "${filedFilename}" -> data/${monthStr}/inputs/${isPdf ? 'digital' : 'paper'}/${destName}`);
-  return true;
+  return 'filed';
 }
 
 function headerValue(payload, name) {
@@ -196,11 +262,34 @@ function headerValue(payload, name) {
 
 function collectAttachmentParts(payload, acc = []) {
   if (!payload) return acc;
+  // message/rfc822 (a forwarded-as-attachment .eml) is handled separately
+  // as its own source by collectEmbeddedMessages - don't also grab it here
+  // (its ".eml" filename wouldn't match SUPPORTED_EXT anyway) or descend
+  // into it, which would bypass that source's own subject whitelist check.
+  if (payload.mimeType === 'message/rfc822') return acc;
   if (payload.filename && payload.body && (payload.body.attachmentId || payload.body.data)) {
     acc.push(payload);
   }
   if (payload.parts) {
     for (const part of payload.parts) collectAttachmentParts(part, acc);
+  }
+  return acc;
+}
+
+// Finds message/rfc822 parts (forwarded-as-attachment original emails) one
+// level deep - Gmail already parses each into its own header+parts tree
+// (payload.parts[0]), no separate MIME parser needed. Doesn't recurse into
+// an embedded message looking for further embedded messages.
+function collectEmbeddedMessages(payload, acc = []) {
+  if (!payload) return acc;
+  if (payload.mimeType === 'message/rfc822' && payload.parts?.[0]) {
+    const embeddedRoot = payload.parts[0];
+    const subject = headerValue(embeddedRoot, 'Subject') || '(no subject)';
+    acc.push({ subject, payload: embeddedRoot });
+    return acc;
+  }
+  if (payload.parts) {
+    for (const part of payload.parts) collectEmbeddedMessages(part, acc);
   }
   return acc;
 }
@@ -240,6 +329,7 @@ function stripSubjectPrefixes(subject) {
 
 function findHtmlPart(payload) {
   if (!payload) return null;
+  if (payload.mimeType === 'message/rfc822') return null;
   if (payload.mimeType === 'text/html' && payload.body?.data) return payload;
   for (const part of payload.parts || []) {
     const found = findHtmlPart(part);
@@ -308,6 +398,19 @@ async function fileExists(p) {
   return fs.access(p).then(() => true).catch(() => false);
 }
 
+// fs.rename can't cross filesystems (EXDEV), and the data root is usually
+// the echo.ops SMB share while the working copy sits in the local os.tmpdir().
+// Fall back to copy + delete in that case.
+async function moveFile(src, dest) {
+  try {
+    await fs.rename(src, dest);
+  } catch (err) {
+    if (err.code !== 'EXDEV') throw err;
+    await fs.copyFile(src, dest);
+    await fs.rm(src);
+  }
+}
+
 // Avoid clobbering an existing file of the same name (e.g. two different
 // senders both attaching "invoice.pdf").
 function uniqueName(dir, filename) {
@@ -338,7 +441,10 @@ async function ensureLabel(gmail, labelName) {
   return created.id;
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error(`\n❌ poll-inbox failed: ${error.message}\n`);
+  // invalid_grant (expired refresh token) lands here, as does anything else
+  // that kills the whole run before a single message is looked at.
+  await recordFailure(error.message);
   process.exit(1);
 });

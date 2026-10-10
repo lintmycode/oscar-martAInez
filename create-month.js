@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { ensureMonthScaffold } from './lib/month-scaffold.js';
+import { getDataRoot } from './lib/paths.js';
 
 async function main() {
   console.log('AI Invoice Month Setup');
@@ -11,7 +12,7 @@ async function main() {
     const monthStr = `${params.year}-${String(params.month).padStart(2, '0')}`;
     await ensureMonthScaffold(monthStr);
 
-    const dataRoot = process.env.OSCAR_DATA_ROOT || 'data';
+    const dataRoot = getDataRoot();
     console.log(`\n✅ Month structure ready: ${dataRoot}/${monthStr}/`);
     console.log('='.repeat(60));
   } catch (error) {

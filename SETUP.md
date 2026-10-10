@@ -171,8 +171,17 @@ npm run poll-inbox
 
 Any email in that inbox with an unread PDF/JPG/PNG/HEIC attachment gets filed and labeled
 `Oscar/Processed` + marked read, so it's never picked up twice. HEIC photos (iPhone default)
-are converted to JPEG via macOS `sips` before filing. Anything whose invoice date can't be
-determined is left in `data/tmp/needs-review/` and logged instead of guessed.
+are converted to JPEG via macOS `sips` before filing. Landscape photos are treated as receipts
+shot sideways and a copy is rotated 90° counter-clockwise before extraction (the filed photo
+is left as sent). Anything whose invoice date can't be
+determined is left in `data/tmp/needs-review/` and logged instead of guessed - that still
+counts as handled, so the email is labeled and won't be re-downloaded.
+
+If the *extraction service itself* fails (no OpenAI credits, rate limit exhausted, network
+down), that's treated differently: the attachment is **not** filed to `needs-review`, and the
+email is left unread so the next run retries it. Filing it would disguise a fixable outage as
+a manual-review task, and because the email would stay unread the same attachment would be
+re-downloaded under a fresh `-N` name every 10 minutes.
 
 Emails with **no attachment** (HTML-only receipts, e.g. Apple's) only get rendered to PDF and
 processed if their subject matches a pattern in `email-invoice-subjects.txt` (wildcard `*`
@@ -194,6 +203,26 @@ Logs land in `logs/poll-inbox.log` / `logs/poll-inbox.error.log`. To stop it:
 ```bash
 launchctl bootout gui/$(id -u)/com.nitida.oscar.pollinbox
 ```
+
+### Failure alerts
+
+Because the job runs headless, failures used to be visible only in the error log - an expired
+Gmail refresh token once went unnoticed for 7 days and 516 failed runs. `lib/alert.js` now
+raises a macOS notification after **3 consecutive failed runs** (~30 min, long enough to ride
+out a closed laptop lid), and one more when polling recovers. It notifies once per outage,
+not once per run.
+
+Health state lives in `logs/.poll-health.json` (local to this machine, not the shared data root); delete it to reset. To check whether the
+poller is currently healthy:
+
+```bash
+cat logs/.poll-health.json   # absent or consecutiveFailures: 0 means healthy
+launchctl print gui/$(id -u)/com.nitida.oscar.pollinbox | grep "last exit code"
+```
+
+**Gmail token caveat**: if the Google Cloud OAuth consent screen is still in *Testing* status,
+the refresh token expires every **7 days** and every run then fails with `invalid_grant`.
+Re-auth with `npm run gmail:auth`, or publish the consent screen to stop it recurring.
 
 **Caveat**: the plist points at a specific nvm-managed Node binary path
 (`~/.nvm/versions/node/v24.16.0/bin/node`). If you upgrade Node via nvm, update that path in

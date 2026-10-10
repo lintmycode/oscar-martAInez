@@ -9,5 +9,14 @@
 #
 # Anything not matched here gets skipped and left unread rather than
 # rendered - add a line here to allow a new sender/subject pattern.
+#
+# Patterns here also match the OUTER subject of a batch "forward as
+# attachment" (selecting several emails in Gmail and forwarding them
+# together as .eml attachments under a subject you type yourself). A match
+# there authorizes every email in that batch, even ones whose own subject
+# isn't separately listed here - so add a batch-marker pattern you plan to
+# reuse (e.g. a line matching whatever you type when batch-forwarding).
 
 Fatura da Apple*
+apple faturas*
+invoices for oscar*
