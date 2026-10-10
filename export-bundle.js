@@ -20,6 +20,10 @@ async function main() {
     // Export bundle lives inside monthDir (which may be an external data root)
     const exportDir = path.join(monthDir, exportFolderName);
 
+    // Rebuild from scratch: copying over an old export left files that had
+    // since been moved/removed from inputs/ (e.g. a re-filed invoice) in the
+    // folder, and from there in the zip. Both are generated, never edited.
+    await fs.rm(exportDir, { recursive: true, force: true });
     await fs.mkdir(exportDir, { recursive: true });
 
     const copied = await copyInputsStructured(inputsDir, exportDir);
@@ -38,6 +42,10 @@ async function main() {
     const zipPath = path.join(bundlesDir, zipName);
 
     console.log(`\nCreating zip archive...`);
+
+    // `zip -r` adds to an existing archive instead of replacing it, so stale
+    // entries would survive - start from an empty one.
+    await fs.rm(zipPath, { force: true });
 
     // Use zip command to create archive (cd into monthDir to avoid full path in zip)
     try {

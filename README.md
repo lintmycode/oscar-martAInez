@@ -110,7 +110,7 @@ node index.js --year=2025 --month=10
 node export-bundle.js --y=2025 --m=10
 ```
 
-Creates `<data-root>/YYYY-MM/<company>-export-YYYY-MM/` with all input files (keeping `digital/` and `paper/` structure), excluding JSON caches, plus the month XLSX renamed to `<company>-YYYY-MM.xlsx`.
+Creates `<data-root>/YYYY-MM/<company>-export-YYYY-MM/` with all input files (keeping `digital/` and `paper/` structure), excluding JSON caches, plus the month XLSX renamed to `<company>-YYYY-MM.xlsx`. Each run rebuilds the folder and zip from scratch, so files removed from `inputs/` don't linger in a re-export.
 
 ### Using an external data directory
 
