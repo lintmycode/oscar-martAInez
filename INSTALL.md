@@ -39,7 +39,7 @@ lands in the right `data/YYYY-MM/inputs/` folder and the email gets labeled
 If the vendor sends HTML-only receipts with no attachment (e.g. Apple), add its subject
 pattern to `email-invoice-subjects.txt` first - that's the whitelist gating which forwarded
 emails are allowed to trigger PDF rendering + extraction. Anything not listed there is left
-unread, not rendered.
+unprocessed, not rendered.
 
 ## 4. Schedule it (cron on echo)
 
