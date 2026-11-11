@@ -127,7 +127,7 @@ has, with the missing items listed.
   `inputs/`. If the zip is still > 20 MB, the email carries the path on the share instead of the attachment.
 - **Email**: Gmail API `users.messages.send` from the intake account (the existing
   `gmail.modify` scope allows sending, so no re-auth is needed) to Nuno only (`OSCAR_REPORT_TO` in .env); he reviews and forwards to the accountant (decided). Subject
-  `nítida — contabilidade 2026-10`; body = summary (rows, matched, waived, personal
+  `NÍTIDA - Contabilidade 2026-10`; body = summary (rows, matched, waived, personal
   total, unmatched invoices); zip attached.
 - **Telegram**: "📦 Oscar: bundle 2026-10 ready, emailed to you (N files, X MB)".
 
