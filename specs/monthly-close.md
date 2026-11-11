@@ -129,7 +129,7 @@ has, with the missing items listed.
   `gmail.modify` scope allows sending, so no re-auth is needed) to Nuno only (`OSCAR_REPORT_TO` in .env); he reviews and forwards to the accountant (decided). Subject
   `nitida — contabilidade 2026-10`; body = summary (rows, matched, waived, personal
   total, unmatched invoices); zip attached.
-- **Telegram**: "📦 Bundle 2026-10 ready, emailed to you (N files, X MB)".
+- **Telegram**: "📦 Oscar: bundle 2026-10 ready, emailed to you (N files, X MB)".
 
 ### U5. Docs
 
