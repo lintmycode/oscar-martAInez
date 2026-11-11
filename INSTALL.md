@@ -41,21 +41,7 @@ pattern to `email-invoice-subjects.txt` first - that's the whitelist gating whic
 emails are allowed to trigger PDF rendering + extraction. Anything not listed there is left
 unread, not rendered.
 
-## 4. Schedule it (launchd, macOS-only)
+## 4. Schedule it (cron on echo)
 
-```bash
-cp ~/projects/oscar/launchd/com.nitida.oscar.pollinbox.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nitida.oscar.pollinbox.plist
-launchctl print gui/$(id -u)/com.nitida.oscar.pollinbox | head -10   # confirm it's loaded
-```
-
-Polls every 10 minutes; logs to `logs/poll-inbox.log` / `logs/poll-inbox.error.log`.
-
-**Note**: the plist hardcodes an nvm-managed Node path
-(`~/.nvm/versions/node/v24.16.0/bin/node`). If you upgrade Node via nvm, update that path
-in `launchd/com.nitida.oscar.pollinbox.plist` and re-run step 4, or the scheduled runs will
-fail silently (check the error log).
-
-**Moving this to an always-on box later** (e.g. "echo"): launchd is macOS-only. On Linux
-you'd swap the plist for cron or a systemd timer calling `node poll-inbox.js` on the same
-interval - the script itself doesn't change, only the scheduler.
+The poller runs on echo, not the laptop - see SETUP.md "Running on a schedule (echo)" for the
+clone, `.env` and crontab steps. Run it in one place only.

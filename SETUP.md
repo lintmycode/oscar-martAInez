@@ -169,9 +169,10 @@ npm run gmail:auth
 npm run poll-inbox
 ```
 
-Any email in that inbox with an unread PDF/JPG/PNG/HEIC attachment gets filed and labeled
-`Oscar/Processed` + marked read, so it's never picked up twice. HEIC photos (iPhone default)
-are converted to JPEG via macOS `sips` before filing. Landscape photos are treated as receipts
+Any email in that inbox with an unread PDF/JPG/PNG attachment gets filed and labeled
+`Oscar/Processed` + marked read, so it's never picked up twice. HEIC is not accepted (echo has
+no `sips`; photos are sent as JPG by agreement) - a HEIC-only email is left unread for a
+manual look. Landscape photos are treated as receipts
 shot sideways and a copy is rotated 90° counter-clockwise before extraction (the filed photo
 is left as sent). Anything whose invoice date can't be
 determined is left in `data/tmp/needs-review/` and logged instead of guessed - that still
@@ -189,44 +190,75 @@ patterns, same style as `exclusions.txt`) - add a line there whenever a new HTML
 shows up. Anything not listed is left unread rather than rendered, since rendering runs
 headless Chrome + OpenAI on the email's actual content.
 
-### Running on a schedule
+### Running on a schedule (echo)
 
-A launchd job (`launchd/com.nitida.oscar.pollinbox.plist`) polls every 10 minutes:
+Since 2026-11-11 the poller runs on **echo** (always on, share auto-mounted), not the laptop:
+the laptop only reached `/Volumes/echo.ops` when someone mounted it by hand, and intake
+silently stopped for a month. Run it in exactly one place - two pollers would race for the
+same unread emails.
 
-```bash
-cp launchd/com.nitida.oscar.pollinbox.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nitida.oscar.pollinbox.plist
-```
-
-Logs land in `logs/poll-inbox.log` / `logs/poll-inbox.error.log`. To stop it:
+Setup on echo (`ssh nuno@echo`):
 
 ```bash
-launchctl bootout gui/$(id -u)/com.nitida.oscar.pollinbox
+git clone git@github.com:lintmycode/oscar-martAInez.git ~/oscar && cd ~/oscar && npm ci
+# from the laptop: scp .env .gmail-token.json echo:oscar/
+# then in ~/oscar/.env on echo:
+#   OSCAR_DATA_ROOT=/mnt/echo-ops/oscar
+#   CHROME_PATH=/home/nuno/.cache/puppeteer/chrome-headless-shell/linux-<ver>/chrome-headless-shell-linux64/chrome-headless-shell
+#   TELEGRAM_CHAT_ID=<nuno's DM id>
+crontab -e   # add: */10 * * * * /home/nuno/oscar/cron/poll-inbox.sh
 ```
+
+`cron/poll-inbox.sh` takes a lock (a big backlog can outlast 10 minutes) and appends to
+`logs/poll-inbox.log` / `logs/poll-inbox.error.log`. Deploying a change = `git pull` in
+`~/oscar` (plus `npm ci` if dependencies changed). To stop it, comment out the crontab line.
+
+**AppArmor (one-time, root):** Ubuntu 24 blocks the user namespaces Chrome's sandbox needs
+("No usable sandbox!"), so `/etc/apparmor.d/oscar-chrome-headless-shell` (installed
+2026-11-11) grants `userns` to the puppeteer headless shell only - the sandbox stays on:
+
+```
+abi <abi/4.0>,
+include <tunables/global>
+profile oscar-chrome-headless-shell /home/nuno/.cache/puppeteer/chrome-headless-shell/linux-*/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+  userns,
+}
+```
+
+Load with `sudo apparmor_parser -r /etc/apparmor.d/oscar-chrome-headless-shell`. If the
+headless shell moves out of `~/.cache/puppeteer`, the profile path must follow.
+
+Emails already **read** in Gmail are never picked up (the query is `is:unread`) - during the
+10/10-11/11 outage three invoices were opened by hand and had to be marked unread again.
+
+`CHROME_PATH` is only used to render HTML-only receipts to PDF; it defaults to the Mac's
+Chrome for manual runs on the laptop. If the puppeteer cache on echo is updated, the versioned
+path changes - `npx @puppeteer/browsers install chrome-headless-shell@stable` reinstalls one.
 
 ### Failure alerts
 
 Because the job runs headless, failures used to be visible only in the error log - an expired
-Gmail refresh token once went unnoticed for 7 days and 516 failed runs. `lib/alert.js` now
-raises a macOS notification after **3 consecutive failed runs** (~30 min, long enough to ride
-out a closed laptop lid), and one more when polling recovers. It notifies once per outage,
-not once per run.
+Gmail refresh token once went unnoticed for 7 days and 516 failed runs, an unmounted share for
+a month. `lib/alert.js` sends a **Telegram DM** (Beth's bot, token read from
+`~/.openclaw/openclaw.json`, chat id from `TELEGRAM_CHAT_ID`) after **3 consecutive failed
+runs** (~30 min), repeats it **every 24h** while the outage lasts, and sends one more when
+polling recovers. Each alert carries a "Fix:" line for the known failures (Gmail login
+expired, share not mounted, OpenAI failing). Manual runs on the Mac use a macOS notification
+instead.
 
 Health state lives in `logs/.poll-health.json` (local to this machine, not the shared data root); delete it to reset. To check whether the
 poller is currently healthy:
 
 ```bash
 cat logs/.poll-health.json   # absent or consecutiveFailures: 0 means healthy
-launchctl print gui/$(id -u)/com.nitida.oscar.pollinbox | grep "last exit code"
+tail logs/poll-inbox.error.log
 ```
 
 **Gmail token caveat**: if the Google Cloud OAuth consent screen is still in *Testing* status,
 the refresh token expires every **7 days** and every run then fails with `invalid_grant`.
-Re-auth with `npm run gmail:auth`, or publish the consent screen to stop it recurring.
-
-**Caveat**: the plist points at a specific nvm-managed Node binary path
-(`~/.nvm/versions/node/v24.16.0/bin/node`). If you upgrade Node via nvm, update that path in
-the plist and re-bootstrap, or the scheduled runs will silently fail (check the error log).
+Re-auth needs a browser, so run `npm run gmail:auth` on the laptop and
+`scp .gmail-token.json echo:oscar/` - or publish the consent screen (Google Cloud console →
+OAuth consent screen → Publish app) to stop it recurring.
 
 ## Multiple Months
 
