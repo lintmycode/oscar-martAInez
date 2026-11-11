@@ -12,7 +12,7 @@ import path from 'node:path';
 async function withEnv(today, fn) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'oscar-u3-'));
   const keep = { ...process.env };
-  Object.assign(process.env, { OSCAR_DATA_ROOT: root, OSCAR_DRY_RUN: '1', OSCAR_TODAY: today });
+  Object.assign(process.env, { OSCAR_DATA_ROOT: root, OSCAR_DRY_RUN: '1', OSCAR_TODAY: today, OSCAR_REPORT_TO: 'test@example.invalid' });
   try { await fn(root); } finally {
     process.env = keep;
     await fs.rm(root, { recursive: true, force: true });
