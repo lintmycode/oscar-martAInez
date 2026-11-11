@@ -251,6 +251,10 @@ polling recovers. Each alert carries a "Fix:" line for the known failures (Gmail
 expired, share not mounted, OpenAI failing). Manual runs on the Mac use a macOS notification
 instead.
 
+Every run that files something also sends one **"Oscar: N invoices filed"** Telegram summary
+(vendor, amount, date → month folder, plus year corrections and needs-review items). Skipped
+emails aren't included - they're re-checked every run and would repeat every 10 minutes.
+
 Health state lives in `logs/.poll-health.json` (local to this machine, not the shared data root); delete it to reset. To check whether the
 poller is currently healthy:
 

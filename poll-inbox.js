@@ -26,7 +26,7 @@ import { TokenTracker } from './lib/token-tracker.js';
 import { getOAuthClient } from './lib/gmail-auth.js';
 import { getDataRoot } from './lib/paths.js';
 import { ensureMonthScaffold } from './lib/month-scaffold.js';
-import { recordFailure, recordSuccess } from './lib/alert.js';
+import { recordFailure, recordSuccess, notify } from './lib/alert.js';
 
 const PROCESSED_LABEL = 'Oscar/Processed';
 // Gmail-side prefilter. Keyed on "not yet labeled Oscar/Processed", NOT on
@@ -58,6 +58,11 @@ const SUPPORTED_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png']);
 // chrome-headless-shell in ~/.cache/puppeteer; the Mac default is a fallback
 // for manual runs on the laptop.
 const CHROME_PATH = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+// What this run filed, sent as one Telegram summary at the end (one process
+// per cron run, so module scope is per run). Skipped emails are left out on
+// purpose: they're re-checked every run and would repeat every 10 minutes.
+const filedReport = [];
 
 async function main() {
   // Resolve (and existence-check) the data root before touching Gmail, so an
@@ -94,6 +99,8 @@ async function main() {
     }
   } finally {
     if (browserRef.current) await browserRef.current.close();
+    // In finally so a run that dies partway still reports what it filed.
+    await sendFiledSummary();
   }
 
   // The run didn't throw, but attachments were left unprocessed because the
@@ -255,6 +262,7 @@ async function fileCandidate({ candidate, extractor, needsReviewDir, emailDate }
     console.log(
       `FLAG: could not determine an invoice date for "${filename}" (from "${subject}") - left at ${destPath} for manual review.`
     );
+    filedReport.push(`⚠️ ${filename} - no date found, in tmp/needs-review`);
     // Counts as handled: the file is parked for a human, so re-polling the
     // email would only produce duplicate copies of something already queued.
     return 'needs-review';
@@ -274,6 +282,9 @@ async function fileCandidate({ candidate, extractor, needsReviewDir, emailDate }
   }
 
   console.log(`Filed "${filename}" -> data/${monthStr}/inputs/${isPdf ? 'digital' : 'paper'}/${destName}`);
+  const amount = invoice.amount ? ` ${Number(invoice.amount).toFixed(2)} ${invoice.currency || 'EUR'}` : '';
+  const fixedYear = invoice.originalDate ? ` (year corrected, read ${invoice.originalDate})` : '';
+  filedReport.push(`• ${invoice.vendor || filename}${amount}, ${invoice.date} → ${monthStr}${fixedYear}`);
   return 'filed';
 }
 
@@ -419,6 +430,12 @@ function correctYear(dateStr, emailDate) {
   let year = emailDate.getUTCFullYear();
   if (tooNew(at(year))) year -= 1;
   return `${dd}/${mm}/${year}`;
+}
+
+async function sendFiledSummary() {
+  if (!filedReport.length) return;
+  const n = filedReport.length;
+  await notify(`Oscar: ${n} invoice${n === 1 ? '' : 's'} filed`, filedReport.join('\n'));
 }
 
 function sanitizeFilename(name) {
