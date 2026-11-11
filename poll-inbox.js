@@ -29,22 +29,28 @@ import { ensureMonthScaffold } from './lib/month-scaffold.js';
 import { recordFailure, recordSuccess } from './lib/alert.js';
 
 const PROCESSED_LABEL = 'Oscar/Processed';
-// Gmail-side prefilter only, to avoid re-fetching years of unrelated unread
-// mail (security alerts etc) this inbox already had before being
-// repurposed. The real access-control gate for HTML rendering is the
-// subject whitelist below - matching this query is necessary but not
-// sufficient for a message to get rendered.
-const QUERY = 'is:unread -in:chats (has:attachment OR subject:(fwd OR fw))';
+// Gmail-side prefilter. Keyed on "not yet labeled Oscar/Processed", NOT on
+// is:unread: opening an email in Gmail marks it read, and the unread-based
+// query silently skipped 4 invoices that way (10/10-11/11/2026).
+// - newer_than:30d keeps years of pre-repurpose mail out of it; an email
+//   still unprocessed after 30 days has long since raised an alert.
+// - in:inbox leaves out mail this account sent itself.
+// Skipped emails (no usable attachment) are re-checked every run within
+// that window - cheap (no extraction), and it means adding a subject to the
+// whitelist picks the email up on the next run with no manual step.
+// The real access-control gate for HTML rendering is the subject whitelist
+// below - matching this query is necessary but not sufficient.
+const QUERY = `in:inbox -label:${PROCESSED_LABEL} newer_than:30d -in:chats (has:attachment OR subject:(fwd OR fw))`;
 
 // HTML->PDF rendering (see renderHtmlToPdf) only runs for a message whose
 // subject matches one of these patterns - anything else with no real
-// attachment is left unread rather than blindly rendered+extracted. Without
+// attachment is left unprocessed rather than blindly rendered+extracted. Without
 // this, ANY forwarded email with "fwd"/"fw" in the subject would get run
 // through headless Chrome and OpenAI regardless of content.
 const SUBJECT_WHITELIST_PATH = path.join(process.cwd(), 'email-invoice-subjects.txt');
 
 // No HEIC: the poller runs on echo (Linux, no sips) and photos are sent as
-// JPG by agreement. A HEIC-only email is left unread for a manual look.
+// JPG by agreement. A HEIC-only email is left unprocessed for a manual look.
 const SUPPORTED_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png']);
 
 // puppeteer-core against an existing browser avoids puppeteer's ~300MB
@@ -76,7 +82,7 @@ async function main() {
     return;
   }
 
-  console.log(`Found ${messages.length} unread candidate message(s).`);
+  console.log(`Found ${messages.length} unprocessed candidate message(s).`);
 
   // Lazily launched only if some message actually needs HTML->PDF rendering,
   // and shared across messages in this run rather than one launch each.
@@ -103,6 +109,7 @@ async function main() {
 async function processMessage({ gmail, messageId, extractor, processedLabelId, needsReviewDir, browserRef, subjectWhitelist }) {
   const { data: message } = await gmail.users.messages.get({ userId: 'me', id: messageId });
   const outerSubject = headerValue(message.payload, 'Subject') || '(no subject)';
+  const emailDate = new Date(Number(message.internalDate));
 
   // "Forward as attachment" (often used to batch-forward several selected
   // emails at once) attaches each original message as message/rfc822 -
@@ -128,7 +135,7 @@ async function processMessage({ gmail, messageId, extractor, processedLabelId, n
 
   if (!candidates.length) {
     console.log(
-      `Skipping "${outerSubject}": no pdf/jpg/png attachment and no whitelisted HTML body found (including inside any forwarded .eml attachments), left unread for manual look.`
+      `Skipping "${outerSubject}": no pdf/jpg/png attachment and no whitelisted HTML body found (including inside any forwarded .eml attachments), left unprocessed for manual look.`
     );
     return;
   }
@@ -137,13 +144,13 @@ async function processMessage({ gmail, messageId, extractor, processedLabelId, n
   let infraFailures = 0;
 
   for (const candidate of candidates) {
-    const result = await fileCandidate({ candidate, extractor, needsReviewDir });
+    const result = await fileCandidate({ candidate, extractor, needsReviewDir, emailDate });
     if (result === 'infra-failure') infraFailures += 1;
     else if (result) handledCount += 1;
   }
 
   // Only label the message once nothing is left to retry. A message with a
-  // mix of filed and failed attachments stays unread so the next run can
+  // mix of filed and failed attachments stays unlabeled so the next run can
   // finish it - the sidecar cache means the already-extracted ones aren't
   // paid for twice, and uniqueName() keeps the redo from overwriting.
   if (handledCount > 0 && infraFailures === 0) {
@@ -192,7 +199,7 @@ function buildCandidates({ source, gmail, messageId, subjectWhitelist, outerAuth
   }];
 }
 
-async function fileCandidate({ candidate, extractor, needsReviewDir }) {
+async function fileCandidate({ candidate, extractor, needsReviewDir, emailDate }) {
   const { ext, subject, filename } = candidate;
   const isPdf = ext === '.pdf';
   const buffer = await candidate.getBuffer();
@@ -209,12 +216,24 @@ async function fileCandidate({ candidate, extractor, needsReviewDir }) {
   // network down) rather than the document being unreadable. Leave the
   // email untouched so the next run retries it, and drop the temp copy -
   // filing it under needs-review would both hide a fixable outage as a
-  // manual-review task and, since the email stays unread, re-download the
+  // manual-review task and, since the email stays unlabeled, re-download the
   // same attachment under a fresh -N name every 10 minutes.
   if (!invoice && extractor.lastFailureWasInfra) {
     await fs.rm(tmpDir, { recursive: true, force: true });
-    console.error(`  RETRY LATER: extraction service failed on "${filename}" (from "${subject}") - leaving email unread.`);
+    console.error(`  RETRY LATER: extraction service failed on "${filename}" (from "${subject}") - leaving email unprocessed.`);
     return 'infra-failure';
+  }
+
+  // The vision model misreads receipt years (11/11/2026: three 2026 photos
+  // came back as 2020, 2022 and 2023). Fix the year before choosing the
+  // month folder, and in the sidecar too - index.js matches on that date.
+  const corrected = invoice && correctYear(invoice.date, emailDate);
+  if (corrected) {
+    console.log(`  YEAR CORRECTED: "${filename}" read as ${invoice.date}, filed as ${corrected} (email sent ${emailDate.toISOString().slice(0, 10)})`);
+    invoice.originalDate = invoice.date;
+    invoice.date = corrected;
+    const sidecar = extractor.getSidecarPath(tmpPath);
+    if (await fileExists(sidecar)) await fs.writeFile(sidecar, JSON.stringify(invoice, null, 2));
   }
 
   const monthStr = invoiceMonth(invoice?.date);
@@ -369,6 +388,27 @@ function invoiceMonth(dateStr) {
   const month = Number(mm);
   if (month < 1 || month > 12) return null;
   return `${yyyy}-${mm}`;
+}
+
+// A receipt dated more than a year before the email that carried it, or
+// more than a month after, is taken as a misread year: keep day/month and
+// use the email's year (or the year before, if that would land after the
+// email). Returns the corrected dd/mm/yyyy, or null when no change is needed.
+// Trade-off: a genuinely >1-year-old receipt sent by email would be moved
+// into the wrong year - rare here, and invoice.originalDate keeps the
+// model's reading in the sidecar so it can be traced.
+const DAY_MS = 24 * 60 * 60 * 1000;
+function correctYear(dateStr, emailDate) {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((dateStr || '').trim());
+  if (!match || Number.isNaN(emailDate.getTime())) return null;
+  const [, dd, mm, yyyy] = match;
+  const at = (year) => new Date(Date.UTC(year, Number(mm) - 1, Number(dd)));
+  const tooOld = (d) => d < emailDate - 365 * DAY_MS;
+  const tooNew = (d) => d > emailDate.getTime() + 31 * DAY_MS;
+  if (!tooOld(at(Number(yyyy))) && !tooNew(at(Number(yyyy)))) return null;
+  let year = emailDate.getUTCFullYear();
+  if (tooNew(at(year))) year -= 1;
+  return `${dd}/${mm}/${year}`;
 }
 
 function sanitizeFilename(name) {

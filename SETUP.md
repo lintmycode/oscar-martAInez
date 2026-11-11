@@ -169,25 +169,33 @@ npm run gmail:auth
 npm run poll-inbox
 ```
 
-Any email in that inbox with an unread PDF/JPG/PNG attachment gets filed and labeled
-`Oscar/Processed` + marked read, so it's never picked up twice. HEIC is not accepted (echo has
-no `sips`; photos are sent as JPG by agreement) - a HEIC-only email is left unread for a
-manual look. Landscape photos are treated as receipts
+Any inbox email from the last 30 days with a PDF/JPG/PNG attachment and **no
+`Oscar/Processed` label** gets filed, then labeled `Oscar/Processed` + marked read, so it's
+never picked up twice. Read/unread doesn't matter (since 2026-11-11 - opening an email in
+Gmail used to hide it from the poller). HEIC is not accepted (echo has no `sips`; photos are
+sent as JPG by agreement) - a HEIC-only email is left unlabeled for a manual look. Landscape photos are treated as receipts
 shot sideways and a copy is rotated 90° counter-clockwise before extraction (the filed photo
 is left as sent). Anything whose invoice date can't be
 determined is left in `data/tmp/needs-review/` and logged instead of guessed - that still
 counts as handled, so the email is labeled and won't be re-downloaded.
 
+**Year correction:** the vision model misreads receipt years. A date more than a year before
+the email (or over a month after it) keeps its day/month but takes the email's year (or the
+year before, if that would land after the email), logged as `YEAR CORRECTED`; the model's
+reading stays in the sidecar JSON as `originalDate`. A genuinely old receipt sent by email
+would therefore be filed in the wrong year - move it by hand.
+
 If the *extraction service itself* fails (no OpenAI credits, rate limit exhausted, network
 down), that's treated differently: the attachment is **not** filed to `needs-review`, and the
-email is left unread so the next run retries it. Filing it would disguise a fixable outage as
-a manual-review task, and because the email would stay unread the same attachment would be
+email is left unlabeled so the next run retries it. Filing it would disguise a fixable outage as
+a manual-review task, and because the email would stay unlabeled the same attachment would be
 re-downloaded under a fresh `-N` name every 10 minutes.
 
 Emails with **no attachment** (HTML-only receipts, e.g. Apple's) only get rendered to PDF and
 processed if their subject matches a pattern in `email-invoice-subjects.txt` (wildcard `*`
 patterns, same style as `exclusions.txt`) - add a line there whenever a new HTML-only vendor
-shows up. Anything not listed is left unread rather than rendered, since rendering runs
+shows up - a skipped email is re-checked every run for 30 days, so it is picked up on the
+next run after its subject is added. Anything not listed is left unprocessed rather than rendered, since rendering runs
 headless Chrome + OpenAI on the email's actual content.
 
 ### Running on a schedule (echo)
@@ -195,7 +203,7 @@ headless Chrome + OpenAI on the email's actual content.
 Since 2026-11-11 the poller runs on **echo** (always on, share auto-mounted), not the laptop:
 the laptop only reached `/Volumes/echo.ops` when someone mounted it by hand, and intake
 silently stopped for a month. Run it in exactly one place - two pollers would race for the
-same unread emails.
+same emails.
 
 Setup on echo (`ssh nuno@echo`):
 
@@ -227,9 +235,6 @@ profile oscar-chrome-headless-shell /home/nuno/.cache/puppeteer/chrome-headless-
 
 Load with `sudo apparmor_parser -r /etc/apparmor.d/oscar-chrome-headless-shell`. If the
 headless shell moves out of `~/.cache/puppeteer`, the profile path must follow.
-
-Emails already **read** in Gmail are never picked up (the query is `is:unread`) - during the
-10/10-11/11 outage three invoices were opened by hand and had to be marked unread again.
 
 `CHROME_PATH` is only used to render HTML-only receipts to PDF; it defaults to the Mac's
 Chrome for manual runs on the laptop. If the puppeteer cache on echo is updated, the versioned
