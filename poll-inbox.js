@@ -30,6 +30,7 @@ import { recordFailure, recordSuccess } from './lib/alert.js';
 import { say } from './lib/notify-out.js';
 import { collectCsvParts, intakeCsvCandidates, scanDropFolder } from './lib/csv-intake.js';
 import { processWaiverEmail } from './lib/waiver-email.js';
+import { afterFiling } from './lib/close-job.js';
 
 const PROCESSED_LABEL = 'Oscar/Processed';
 // Gmail-side prefilter. Keyed on "not yet labeled Oscar/Processed", NOT on
@@ -102,6 +103,13 @@ async function main() {
     // it filed.
     await pollDropFolder(dataRoot);
     await sendFiledSummary();
+  }
+
+  // U3: something landed, so an open month may now be complete (bundle goes
+  // out minutes after the last missing piece, not next morning) or a bundled
+  // month got a late arrival. Never fails the poll run.
+  if (filedReport.length || waiverReport.length || touchedMonths.size) {
+    await afterFiling(touchedMonths);
   }
 
   // The run didn't throw, but attachments were left unprocessed because the
