@@ -22,6 +22,8 @@ oscar-martAInez/
 ├── config.js                   # Settings & budget limits
 ├── create-month.js             # Create month folder structure
 ├── export-bundle.js            # Package files for accountant
+├── close-month.js              # Monthly close job (see SETUP.md "Monthly close")
+├── poll-inbox.js               # Gmail + inbox/ drop-folder intake (invoices, extract CSVs, waivers)
 ├── test-local.js               # Test CSV parsing (no API)
 ├── exclusions.txt              # Transactions to exclude entirely
 ├── ignore-words.txt            # Vendor name cleanup patterns
@@ -36,7 +38,12 @@ oscar-martAInez/
 │   ├── xlsx-generator.js
 │   ├── personal-exception-filter.js
 │   ├── exclusion-filter.js
-│   └── transaction-grouper.js
+│   ├── transaction-grouper.js
+│   ├── extract-classifier.js   # Classify CGD extract CSVs by content
+│   ├── csv-intake.js           # File extracts into month folders (email + drop folder)
+│   ├── month-status.js         # "What is missing for month M?"
+│   ├── waivers.js, waiver-email.js  # Per-month waivers (sem fatura emails)
+│   └── close-job.js, close-state.js # Close scheduling + close.json state
 │
 └── data/                       # Monthly data (git-ignored)
     └── YYYY-MM/                # One folder per month (e.g., 2025-10)
@@ -104,6 +111,15 @@ node index.js --y=2025 --m=10
 node index.js --year=2025 --month=10
 ```
 
+### Monthly close (automatic)
+
+From the 14th Oscar chases what is missing for the previous month (bank extracts, invoices, waivers by email `sem fatura`), reminds daily, and delivers the bundle when complete (or on the 20th with what exists). Full description: **SETUP.md, "Monthly close"**; spec: `specs/monthly-close.md`.
+
+```bash
+node close-month.js --month=2026-10          # check one month now
+node close-month.js --due                    # what the daily cron runs
+```
+
 ### Export bundle for accountant
 
 ```bash
@@ -111,6 +127,14 @@ node export-bundle.js --y=2025 --m=10
 ```
 
 Creates `<data-root>/YYYY-MM/<company>-export-YYYY-MM/` with all input files (keeping `digital/` and `paper/` structure), excluding JSON caches, plus the month XLSX renamed to `<company>-YYYY-MM.xlsx`. Each run rebuilds the folder and zip from scratch, so files removed from `inputs/` don't linger in a re-export.
+
+#### Bundle delivery
+
+The bundle logic lives in `lib/bundle.js` (`buildBundle(month, { shrinkPhotos = true })` returns `{ zipPath, zipBytes, fileCount, exportDir }`); `export-bundle.js` is a thin CLI over it.
+
+- **Photo shrinking (bundle copy only)**: images under `paper/` (jpg/jpeg/png) are resized to at most 2000 px on the long edge and re-encoded as JPEG q85 (EXIF orientation applied; PNGs become `.jpg`). Reason: Gmail caps a message at 25 MB and June 2026's zip was 26.8 MB of phone photos; invoices stay legible at this size. Originals in `inputs/` are never modified. PDFs are copied unchanged. (June 2026: 27.6 MB -> 5.2 MB.)
+- **Email**: `lib/deliver-bundle.js` exports `deliverBundle({ month, incomplete, missing, summary })`. It builds the bundle, sends it through the Gmail API (existing `gmail.modify` token, no re-auth) to `OSCAR_REPORT_TO` with subject `nitida — contabilidade YYYY-MM` (prefixed `[INCOMPLETO] ` when incomplete, missing items listed at the top of the body), then sends a Telegram notice. It returns `{ zipPath, zipBytes, emailed, attached }`. If the zip is over 20 MB it is not attached; the body gives its path on the share instead. If the send fails it does not throw: `emailed` is `false` and Telegram reports it.
+- **Dry run**: with `OSCAR_DRY_RUN=1` nothing is sent; the raw message is written to `<data-root>/tmp/dry-run-email-YYYY-MM.eml` instead.
 
 ### Using an external data directory
 
