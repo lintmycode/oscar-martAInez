@@ -213,6 +213,24 @@ crontab -e   # add: */10 * * * * /home/nuno/oscar/cron/poll-inbox.sh
 `logs/poll-inbox.log` / `logs/poll-inbox.error.log`. Deploying a change = `git pull` in
 `~/oscar` (plus `npm ci` if dependencies changed). To stop it, comment out the crontab line.
 
+**AppArmor (one-time, root):** Ubuntu 24 blocks the user namespaces Chrome's sandbox needs
+("No usable sandbox!"), so `/etc/apparmor.d/oscar-chrome-headless-shell` (installed
+2026-11-11) grants `userns` to the puppeteer headless shell only - the sandbox stays on:
+
+```
+abi <abi/4.0>,
+include <tunables/global>
+profile oscar-chrome-headless-shell /home/nuno/.cache/puppeteer/chrome-headless-shell/linux-*/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+  userns,
+}
+```
+
+Load with `sudo apparmor_parser -r /etc/apparmor.d/oscar-chrome-headless-shell`. If the
+headless shell moves out of `~/.cache/puppeteer`, the profile path must follow.
+
+Emails already **read** in Gmail are never picked up (the query is `is:unread`) - during the
+10/10-11/11 outage three invoices were opened by hand and had to be marked unread again.
+
 `CHROME_PATH` is only used to render HTML-only receipts to PDF; it defaults to the Mac's
 Chrome for manual runs on the laptop. If the puppeteer cache on echo is updated, the versioned
 path changes - `npx @puppeteer/browsers install chrome-headless-shell@stable` reinstalls one.
