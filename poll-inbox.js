@@ -29,6 +29,7 @@ import { ensureMonthScaffold } from './lib/month-scaffold.js';
 import { recordFailure, recordSuccess } from './lib/alert.js';
 import { say } from './lib/notify-out.js';
 import { collectCsvParts, intakeCsvCandidates, scanDropFolder } from './lib/csv-intake.js';
+import { processWaiverEmail } from './lib/waiver-email.js';
 
 const PROCESSED_LABEL = 'Oscar/Processed';
 // Gmail-side prefilter. Keyed on "not yet labeled Oscar/Processed", NOT on
@@ -40,9 +41,10 @@ const PROCESSED_LABEL = 'Oscar/Processed';
 // Skipped emails (no usable attachment) are re-checked every run within
 // that window - cheap (no extraction), and it means adding a subject to the
 // whitelist picks the email up on the next run with no manual step.
+// The "sem fatura" subjects are the waiver emails (no attachment, see lib/waiver-email.js).
 // The real access-control gate for HTML rendering is the subject whitelist
 // below - matching this query is necessary but not sufficient.
-const QUERY = `in:inbox -label:${PROCESSED_LABEL} newer_than:30d -in:chats (has:attachment OR subject:(fwd OR fw))`;
+const QUERY = `in:inbox -label:${PROCESSED_LABEL} newer_than:30d -in:chats (has:attachment OR subject:(fwd OR fw) OR subject:"sem fatura" OR subject:"sem factura")`;
 
 // HTML->PDF rendering (see renderHtmlToPdf) only runs for a message whose
 // subject matches one of these patterns - anything else with no real
@@ -69,6 +71,9 @@ const filedReport = [];
 // Months that received something this run (invoices or extracts); U3 uses it
 // to re-check open months and to flag late arrivals in bundled ones.
 const touchedMonths = new Set();
+
+// Confirmations of "sem fatura" waiver emails, sent as their own message.
+const waiverReport = [];
 
 // Unrecognised CSV emails stay unlabeled (a human must look), so they'd be
 // re-found - and re-reported - every 10 minutes for 30 days. Remember what
@@ -157,6 +162,23 @@ async function processMessage({ gmail, messageId, extractor, processedLabelId, n
   const { data: message } = await gmail.users.messages.get({ userId: 'me', id: messageId });
   const outerSubject = headerValue(message.payload, 'Subject') || '(no subject)';
   const emailDate = new Date(Number(message.internalDate));
+
+  // U2: a "sem fatura" waiver email is handled before the invoice path. Only
+  // Nuno's own addresses (OSCAR_OWNER_EMAILS) are honoured - anyone can email
+  // this inbox - anything else falls through as an ordinary email.
+  const waiver = await processWaiverEmail({ payload: message.payload });
+  if (waiver.kind === 'handled') {
+    waiverReport.push(waiver.text);
+    if (waiver.month) touchedMonths.add(waiver.month);
+    await labelProcessed(gmail, messageId, processedLabelId);
+    return 0;
+  }
+  if (waiver.kind === 'rejected') {
+    console.log(`Ignoring "sem fatura" email: ${waiver.reason}.`);
+    if (await firstTimeReporting(`waiver-rejected:${messageId}`)) {
+      waiverReport.push(`⚠️ Ignored a "sem fatura" email: ${waiver.reason}.`);
+    }
+  }
 
   // "Forward as attachment" (often used to batch-forward several selected
   // emails at once) attaches each original message as message/rfc822 -
@@ -507,6 +529,7 @@ function correctYear(dateStr, emailDate) {
 }
 
 async function sendFiledSummary() {
+  if (waiverReport.length) await say('Oscar: sem fatura', waiverReport.join('\n'));
   if (!filedReport.length) return;
   const n = filedReport.length;
   await say(`Oscar: ${n} item${n === 1 ? '' : 's'} filed`, filedReport.join('\n'));
