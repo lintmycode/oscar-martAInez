@@ -124,7 +124,7 @@ By default all month data lives in `./data/` (relative to the project directory)
 so the laptop, echo and Beth all see the same folders — `/Volumes/echo.ops/oscar` on the Mac,
 `/mnt/echo-ops/oscar` on echo. Each machine sets its own path in `.env`
 (`OSCAR_DATA_ROOT=...`); every script loads `.env` through `lib/paths.js`, including
-`poll-inbox.js` under launchd. If `OSCAR_DATA_ROOT` is set but the path doesn't exist (share
+`poll-inbox.js` under cron on echo. If `OSCAR_DATA_ROOT` is set but the path doesn't exist (share
 not mounted), every command fails with "is the echo.ops share mounted?" instead of silently
 writing somewhere local — the poller then fails before touching Gmail, so no email is marked
 read, and it alerts after 3 failed runs as usual.
@@ -206,7 +206,7 @@ The tool generates files in `data/YYYY-MM/out/`:
 
 - **PDFs**: Local text extraction first (free), Vision API only if needed
 - **Images**: OpenAI Vision API (gpt-4o-mini). Landscape photos (receipts shot sideways) are
-  rotated 90° counter-clockwise via macOS `sips` before extraction - only a temp copy, the
+  rotated 90° counter-clockwise (via `sharp`) before extraction - only a temp copy, the
   source file is untouched
 - **Caching**: MD5 hash-based, stored in `out/cache.json`
 

@@ -1,27 +1,17 @@
 # Uninstall / Stop
 
-## Email intake (poll-inbox.js + launchd)
+## Email intake (poll-inbox.js, cron on echo)
 
-Stop the scheduled polling without removing anything else:
-
-```bash
-launchctl bootout gui/$(id -u)/com.nitida.oscar.pollinbox
-```
-
-This stops it immediately and it won't restart on next login, but the job definition
-stays installed - `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nitida.oscar.pollinbox.plist`
-resumes it later with no further setup.
+Stop the scheduled polling without removing anything else: on echo, `crontab -e` and comment
+out the `cron/poll-inbox.sh` line. Uncomment it to resume.
 
 To fully remove it:
 
 ```bash
-# 1. Stop it (ignore "Could not find service" if it wasn't running)
-launchctl bootout gui/$(id -u)/com.nitida.oscar.pollinbox
-
-# 2. Remove the installed job definition
-rm ~/Library/LaunchAgents/com.nitida.oscar.pollinbox.plist
-
-# 3. Remove the stored Gmail refresh token
+# on echo
+crontab -e                      # delete the cron/poll-inbox.sh line
+rm ~/oscar/.gmail-token.json    # the stored Gmail refresh token
+# on the laptop, if a copy is still there
 rm ~/projects/oscar/.gmail-token.json
 ```
 
@@ -31,5 +21,4 @@ above doesn't do this): sign in as `nitidaops@gmail.com` at
 the OAuth client's access. Re-running `npm run gmail:auth` re-authorizes from scratch if
 you want it back later.
 
-`GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` in `.env` and `launchd/com.nitida.oscar.pollinbox.plist`
-in the repo can stay - they're inert without the token and the running launchd job.
+`GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` in `.env` can stay - they're inert without the token.

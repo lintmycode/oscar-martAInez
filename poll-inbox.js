@@ -15,7 +15,6 @@
 import 'dotenv/config';
 import fs from 'fs/promises';
 import { existsSync } from 'fs';
-import { execFileSync } from 'child_process';
 import path from 'path';
 import os from 'os';
 import { google } from 'googleapis';
@@ -44,12 +43,15 @@ const QUERY = 'is:unread -in:chats (has:attachment OR subject:(fwd OR fw))';
 // through headless Chrome and OpenAI regardless of content.
 const SUBJECT_WHITELIST_PATH = path.join(process.cwd(), 'email-invoice-subjects.txt');
 
-const SUPPORTED_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.heic', '.heif']);
+// No HEIC: the poller runs on echo (Linux, no sips) and photos are sent as
+// JPG by agreement. A HEIC-only email is left unread for a manual look.
+const SUPPORTED_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png']);
 
-// Chrome ships on this Mac already; using puppeteer-core against it avoids
-// puppeteer's ~300MB bundled-Chromium download for a script that only ever
-// runs on this one machine.
-const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// puppeteer-core against an existing browser avoids puppeteer's ~300MB
+// bundled-Chromium download. On echo, CHROME_PATH in .env points at the
+// chrome-headless-shell in ~/.cache/puppeteer; the Mac default is a fallback
+// for manual runs on the laptop.
+const CHROME_PATH = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 async function main() {
   // Resolve (and existence-check) the data root before touching Gmail, so an
@@ -126,7 +128,7 @@ async function processMessage({ gmail, messageId, extractor, processedLabelId, n
 
   if (!candidates.length) {
     console.log(
-      `Skipping "${outerSubject}": no pdf/jpg/png/heic attachment and no whitelisted HTML body found (including inside any forwarded .eml attachments), left unread for manual look.`
+      `Skipping "${outerSubject}": no pdf/jpg/png attachment and no whitelisted HTML body found (including inside any forwarded .eml attachments), left unread for manual look.`
     );
     return;
   }
@@ -191,27 +193,17 @@ function buildCandidates({ source, gmail, messageId, subjectWhitelist, outerAuth
 }
 
 async function fileCandidate({ candidate, extractor, needsReviewDir }) {
-  const { ext, subject } = candidate;
+  const { ext, subject, filename } = candidate;
   const isPdf = ext === '.pdf';
-  const isHeic = ext === '.heic' || ext === '.heif';
   const buffer = await candidate.getBuffer();
 
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'oscar-inbox-'));
-  const tmpPath = path.join(tmpDir, sanitizeFilename(candidate.filename));
+  const tmpPath = path.join(tmpDir, sanitizeFilename(filename));
   await fs.writeFile(tmpPath, buffer);
 
-  // iPhones send photos as HEIC by default; the extractor's vision call
-  // only knows jpg/png, so convert before anything else touches the file.
-  let workingPath = tmpPath;
-  let filedFilename = candidate.filename;
-  if (isHeic) {
-    workingPath = convertHeicToJpeg(tmpPath);
-    filedFilename = path.basename(candidate.filename, ext) + '.jpg';
-  }
-
   const invoice = isPdf
-    ? await extractor.extractFromPdf(workingPath)
-    : await extractor.extractFromImage(workingPath);
+    ? await extractor.extractFromPdf(tmpPath)
+    : await extractor.extractFromImage(tmpPath);
 
   // The extraction call itself failed (no credits, rate limit exhausted,
   // network down) rather than the document being unreadable. Leave the
@@ -221,7 +213,7 @@ async function fileCandidate({ candidate, extractor, needsReviewDir }) {
   // same attachment under a fresh -N name every 10 minutes.
   if (!invoice && extractor.lastFailureWasInfra) {
     await fs.rm(tmpDir, { recursive: true, force: true });
-    console.error(`  RETRY LATER: extraction service failed on "${filedFilename}" (from "${subject}") - leaving email unread.`);
+    console.error(`  RETRY LATER: extraction service failed on "${filename}" (from "${subject}") - leaving email unread.`);
     return 'infra-failure';
   }
 
@@ -229,10 +221,10 @@ async function fileCandidate({ candidate, extractor, needsReviewDir }) {
 
   if (!monthStr) {
     await fs.mkdir(needsReviewDir, { recursive: true });
-    const destPath = path.join(needsReviewDir, uniqueName(needsReviewDir, filedFilename));
-    await moveFile(workingPath, destPath);
+    const destPath = path.join(needsReviewDir, uniqueName(needsReviewDir, filename));
+    await moveFile(tmpPath, destPath);
     console.log(
-      `FLAG: could not determine an invoice date for "${filedFilename}" (from "${subject}") - left at ${destPath} for manual review.`
+      `FLAG: could not determine an invoice date for "${filename}" (from "${subject}") - left at ${destPath} for manual review.`
     );
     // Counts as handled: the file is parked for a human, so re-polling the
     // email would only produce duplicate copies of something already queued.
@@ -241,18 +233,18 @@ async function fileCandidate({ candidate, extractor, needsReviewDir }) {
 
   const { paperDir, digitalDir } = await ensureMonthScaffold(monthStr);
   const destDir = isPdf ? digitalDir : paperDir;
-  const destName = uniqueName(destDir, filedFilename);
-  await moveFile(workingPath, path.join(destDir, destName));
+  const destName = uniqueName(destDir, filename);
+  await moveFile(tmpPath, path.join(destDir, destName));
 
   // Move the sidecar cache alongside it so index.js doesn't re-spend
   // OpenAI tokens re-extracting what poll-inbox.js just extracted.
-  const sidecarSrc = extractor.getSidecarPath(workingPath);
+  const sidecarSrc = extractor.getSidecarPath(tmpPath);
   if (await fileExists(sidecarSrc)) {
     const sidecarDestName = path.basename(destName, path.extname(destName)) + '.json';
     await moveFile(sidecarSrc, path.join(destDir, sidecarDestName));
   }
 
-  console.log(`Filed "${filedFilename}" -> data/${monthStr}/inputs/${isPdf ? 'digital' : 'paper'}/${destName}`);
+  console.log(`Filed "${filename}" -> data/${monthStr}/inputs/${isPdf ? 'digital' : 'paper'}/${destName}`);
   return 'filed';
 }
 
@@ -377,17 +369,6 @@ function invoiceMonth(dateStr) {
   const month = Number(mm);
   if (month < 1 || month > 12) return null;
   return `${yyyy}-${mm}`;
-}
-
-// macOS-only, deliberately: `sips` ships with the OS and decodes HEIC
-// natively, sidestepping the libheif build/licensing uncertainty around npm
-// image libraries. Fine since this script only ever runs locally (launchd).
-// execFileSync (not execSync) avoids shell interpolation of the attachment's
-// filename, which is attacker-controlled input arriving over email.
-function convertHeicToJpeg(srcPath) {
-  const destPath = srcPath.replace(/\.(heic|heif)$/i, '.jpg');
-  execFileSync('sips', ['-s', 'format', 'jpeg', srcPath, '--out', destPath], { stdio: 'ignore' });
-  return destPath;
 }
 
 function sanitizeFilename(name) {
