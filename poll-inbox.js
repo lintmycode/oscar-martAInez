@@ -144,7 +144,17 @@ async function processMessage({ gmail, messageId, extractor, processedLabelId, n
   let infraFailures = 0;
 
   for (const candidate of candidates) {
-    const result = await fileCandidate({ candidate, extractor, needsReviewDir, emailDate });
+    // One unreadable attachment must not abort the whole run: that blocked
+    // every later email and failed every 10 minutes (11/11/2026, a PDF
+    // pdf-parse couldn't open). Treated like an extraction outage - the
+    // email stays unlabeled for a retry, and the alert fires if it persists.
+    let result;
+    try {
+      result = await fileCandidate({ candidate, extractor, needsReviewDir, emailDate });
+    } catch (err) {
+      console.error(`  ERROR on "${candidate.filename}" (from "${candidate.subject}"): ${err.message} - leaving email unprocessed.`);
+      result = 'infra-failure';
+    }
     if (result === 'infra-failure') infraFailures += 1;
     else if (result) handledCount += 1;
   }
