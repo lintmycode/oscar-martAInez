@@ -1,10 +1,6 @@
 #!/usr/bin/env node
 
-import fs from 'fs/promises';
-import path from 'path';
-import { execSync } from 'child_process';
-import { CONFIG } from './config.js';
-import { resolvePaths, getDataRoot } from './lib/paths.js';
+import { buildBundle } from './lib/bundle.js';
 
 async function main() {
   console.log('AI Invoice Export Bundle');
@@ -13,118 +9,11 @@ async function main() {
   try {
     const params = parseArgs();
     const monthStr = `${params.year}-${String(params.month).padStart(2, '0')}`;
-    const { monthDir, inputsDir, xlsxPath } = resolvePaths(monthStr);
-    const companyName = sanitizeName(CONFIG.company?.name || 'company');
-    const exportFolderName = `${companyName}-export-${monthStr}`;
-
-    // Export bundle lives inside monthDir (which may be an external data root)
-    const exportDir = path.join(monthDir, exportFolderName);
-
-    // Rebuild from scratch: copying over an old export left files that had
-    // since been moved/removed from inputs/ (e.g. a re-filed invoice) in the
-    // folder, and from there in the zip. Both are generated, never edited.
-    await fs.rm(exportDir, { recursive: true, force: true });
-    await fs.mkdir(exportDir, { recursive: true });
-
-    const copied = await copyInputsStructured(inputsDir, exportDir);
-
-    const exportXlsxName = `${companyName}-${monthStr}.xlsx`;
-    await copyIfExists(xlsxPath, path.join(exportDir, exportXlsxName));
-
-    console.log(`\nExported ${copied} input files + ${exportXlsxName} to ${exportDir}/`);
-
-    // Create zip file in data/bundles/
-    const dataRoot = getDataRoot();
-    const bundlesDir = path.join(dataRoot, 'bundles');
-    await fs.mkdir(bundlesDir, { recursive: true });
-
-    const zipName = `${exportFolderName}.zip`;
-    const zipPath = path.join(bundlesDir, zipName);
-
-    console.log(`\nCreating zip archive...`);
-
-    // `zip -r` adds to an existing archive instead of replacing it, so stale
-    // entries would survive - start from an empty one.
-    await fs.rm(zipPath, { force: true });
-
-    // Use zip command to create archive (cd into monthDir to avoid full path in zip)
-    try {
-      execSync(`cd "${monthDir}" && zip -r "${zipPath}" "${exportFolderName}" -q`, {
-        stdio: 'pipe',
-      });
-
-      // Get zip file size
-      const stats = await fs.stat(zipPath);
-      const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
-
-      console.log(`✓ Created ${zipName} (${sizeMB} MB)`);
-      console.log(`\nBundle saved to: ${zipPath}`);
-    } catch (error) {
-      console.error(`\n⚠️  Warning: Failed to create zip: ${error.message}`);
-      console.log(`Unzipped bundle available at: ${exportDir}/`);
-    }
-
+    await buildBundle(monthStr);
     console.log('='.repeat(60));
   } catch (error) {
     console.error(`\n❌ Error: ${error.message}\n`);
     process.exit(1);
-  }
-}
-
-async function copyInputsStructured(inputsDir, exportDir) {
-  let count = 0;
-  const entries = await fs.readdir(inputsDir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const srcPath = path.join(inputsDir, entry.name);
-
-    // Copy CSV files and paper/digital directories
-    if (entry.isFile()) {
-      if (path.extname(entry.name).toLowerCase() === '.json') continue; // Skip JSON cache
-      if (path.extname(entry.name).toLowerCase() === '.csv') {
-        const destPath = path.join(exportDir, entry.name);
-        await fs.copyFile(srcPath, destPath);
-        count += 1;
-      }
-    } else if (entry.isDirectory() && (entry.name === 'paper' || entry.name === 'digital')) {
-      const destDir = path.join(exportDir, entry.name);
-      count += await copyDirectory(srcPath, destDir);
-    }
-  }
-
-  return count;
-}
-
-async function copyDirectory(srcDir, destDir) {
-  await fs.mkdir(destDir, { recursive: true });
-  const entries = await fs.readdir(srcDir, { withFileTypes: true });
-  let count = 0;
-
-  for (const entry of entries) {
-    const srcPath = path.join(srcDir, entry.name);
-    const destPath = path.join(destDir, entry.name);
-
-    if (entry.isDirectory()) {
-      count += await copyDirectory(srcPath, destPath);
-    } else if (entry.isFile()) {
-      if (path.extname(entry.name).toLowerCase() === '.json') continue;
-      await fs.copyFile(srcPath, destPath);
-      count += 1;
-    }
-  }
-
-  return count;
-}
-
-async function copyIfExists(src, dest) {
-  try {
-    await fs.copyFile(src, dest);
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      console.warn(`\n⚠️  XLSX not found at ${src}`);
-      return;
-    }
-    throw error;
   }
 }
 
@@ -158,7 +47,7 @@ Example:
 
 This will create a zip file at data/bundles/<company>-export-2025-10.zip containing:
   - *.csv (bank/CC statements)
-  - paper/ (invoice photos)
+  - paper/ (invoice photos, shrunk to <= 2000 px / JPEG q85 in the bundle copy only)
   - digital/ (PDF invoices)
   - <company>-2025-10.xlsx (processed accounting sheet)
 
@@ -184,15 +73,4 @@ to your accountant.
   return { year, month };
 }
 
-function sanitizeName(name) {
-  return name
-    .toString()
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '') || 'company';
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main();
-}
+main();
