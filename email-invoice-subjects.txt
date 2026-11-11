@@ -1,5 +1,5 @@
 # Subjects allowed to trigger poll-inbox.js's HTML->PDF rendering path.
-# Only used when a message has NO real pdf/jpg/png/heic attachment - i.e.
+# Only used when a message has NO real pdf/jpg/png attachment - i.e.
 # a forwarded HTML-only receipt (Apple-style "Fatura"/"Receipt" emails).
 # Real attachments are never subject to this check.
 #
@@ -23,3 +23,6 @@ invoices for oscar*
 
 # PayPal payment receipts (HTML-only, e.g. WP Media / WebSP paid via PayPal)
 Recibo do seu pagamento*
+
+# Canva subscription invoices (HTML-only)
+Your Canva invoice*
