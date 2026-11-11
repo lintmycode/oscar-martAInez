@@ -22,6 +22,8 @@ oscar-martAInez/
 ├── config.js                   # Settings & budget limits
 ├── create-month.js             # Create month folder structure
 ├── export-bundle.js            # Package files for accountant
+├── close-month.js              # Monthly close job (see SETUP.md "Monthly close")
+├── poll-inbox.js               # Gmail + inbox/ drop-folder intake (invoices, extract CSVs, waivers)
 ├── test-local.js               # Test CSV parsing (no API)
 ├── exclusions.txt              # Transactions to exclude entirely
 ├── ignore-words.txt            # Vendor name cleanup patterns
@@ -36,7 +38,12 @@ oscar-martAInez/
 │   ├── xlsx-generator.js
 │   ├── personal-exception-filter.js
 │   ├── exclusion-filter.js
-│   └── transaction-grouper.js
+│   ├── transaction-grouper.js
+│   ├── extract-classifier.js   # Classify CGD extract CSVs by content
+│   ├── csv-intake.js           # File extracts into month folders (email + drop folder)
+│   ├── month-status.js         # "What is missing for month M?"
+│   ├── waivers.js, waiver-email.js  # Per-month waivers (sem fatura emails)
+│   └── close-job.js, close-state.js # Close scheduling + close.json state
 │
 └── data/                       # Monthly data (git-ignored)
     └── YYYY-MM/                # One folder per month (e.g., 2025-10)
@@ -102,6 +109,15 @@ node test-local.js --y=2025 --m=10
 node index.js --y=2025 --m=10
 # or shorthand:
 node index.js --year=2025 --month=10
+```
+
+### Monthly close (automatic)
+
+From the 14th Oscar chases what is missing for the previous month (bank extracts, invoices, waivers by email `sem fatura`), reminds daily, and delivers the bundle when complete (or on the 20th with what exists). Full description: **SETUP.md, "Monthly close"**; spec: `specs/monthly-close.md`.
+
+```bash
+node close-month.js --month=2026-10          # check one month now
+node close-month.js --due                    # what the daily cron runs
 ```
 
 ### Export bundle for accountant

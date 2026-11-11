@@ -269,6 +269,84 @@ Re-auth needs a browser, so run `npm run gmail:auth` on the laptop and
 `scp .gmail-token.json echo:oscar/` - or publish the consent screen (Google Cloud console →
 OAuth consent screen → Publish app) to stop it recurring.
 
+## Monthly close
+
+From the **14th** of each month Oscar closes the **previous** month without being asked: it works
+out what is missing, asks on Telegram, reminds daily, and hands the bundle to
+`lib/deliver-bundle.js` (U4) as soon as everything is there. Spec: `specs/monthly-close.md`.
+
+A month is **complete** when all hold:
+
+1. **Extracts present**, detected by *content* (filenames are inconsistent): a CGD current-account
+   export whose `Intervalo de` covers the whole month, and card statements `Extrato MM-YYYY` for
+   **M and M+1** (late-M card charges post on the next statement).
+2. **No company transaction without an invoice** (yellow rows), ignoring rows explained by
+   `transaction-notes.txt` or a waiver.
+3. **Nothing in `tmp/needs-review/`** dated in M or undated.
+
+### Getting extracts in
+
+- **Email** the CSV to the intake inbox: `poll-inbox.js` classifies it and files it into every month
+  it covers (a 3-month export fills 3 months; a card statement fills its month and the one before).
+  Same file twice (same content hash) is skipped. An unrecognised CSV is left unprocessed and
+  reported once on Telegram.
+- **Drop folder**: put the CSV in `oscar/inbox/` on the echo.ops share. The next poll run files it
+  and moves it to `inbox/filed/` (or `inbox/unrecognised/`).
+- Dropping straight into `YYYY-MM/inputs/` still works.
+
+### Waivers ("this one will never have an invoice")
+
+Every missing row is listed on Telegram with a number the first time it appears
+(`#3 03/10 · ANUIDADE CARTAO · 45.00`); numbers are stored in `YYYY-MM/close.json` and never
+reused within the month. Email the intake inbox with subject **`sem fatura`** and the numbers in
+the body, optionally with a reason: `3 anuidade cartão` or `3, 5`. With more than one open month,
+name it in the subject: `sem fatura 2026-10`.
+
+- Accepted **only** from addresses in `OSCAR_OWNER_EMAILS` (comma-separated, in `.env`): anyone can
+  email the inbox. Mail that failed SPF/DKIM/DMARC is refused too. Anything else is ignored and
+  reported once.
+- Each waiver is appended to `YYYY-MM/waivers.txt` (editable on the share by hand):
+  `DD/MM/YYYY | DESCRIPTION | AMOUNT → reason`. Waived rows show the reason as the note in the sheet.
+  Recurring cases still belong in `transaction-notes.txt`.
+- Unknown numbers are reported back; the confirmation lists what was waived.
+
+### Running it
+
+```bash
+node close-month.js --due                    # what cron runs daily
+node close-month.js --month=2026-10          # check one month now (always prints the list)
+node close-month.js --month=2026-10 --rebundle   # re-run and send a fresh bundle
+```
+
+- `--due` opens M-1 from the 14th, then for each open month: complete -> deliver bundle;
+  otherwise the request (first time) or the **daily reminder** (only what is still missing, with
+  "N of M found since last time"). At most one message per month per day.
+- **The 20th is a deadline**: if still incomplete on/after the 20th of M+1, it delivers an
+  *incomplete* bundle (`deliverBundle({ incomplete: true, missing })`) and sets state
+  `bundled-incomplete`. `--rebundle` later sends the full one.
+- `poll-inbox.js` re-checks open months after a run that filed anything (invoice, extract,
+  waiver), so the bundle goes out minutes after the last piece lands; it only messages then if the
+  missing list changed.
+- A late arrival in an already-bundled month gets a Telegram flag; nothing is re-sent automatically.
+- State per month: `YYYY-MM/close.json` (`status` open / bundled / bundled-incomplete, reminder
+  bookkeeping, the number registry). `out/summary.json` has `missingInvoices` and `waivedRows`.
+
+**Cron on echo** (system TZ is UTC and Ubuntu's cron doesn't reliably honour `CRON_TZ`, so the
+schedule is pinned in UTC: 09:00 Lisbon in winter, 10:00 in summer; the job itself works out
+"today" in Europe/Lisbon):
+
+```
+0 9 * * * /home/nuno/oscar/cron/close-month.sh
+```
+
+`cron/close-month.sh` shares `poll-inbox.sh`'s lock (they must not run the month pipeline at the
+same time) and logs to `logs/close-month.log` / `logs/close-month.error.log`.
+
+**Testing without sending anything**: `OSCAR_DRY_RUN=1` prints Telegram/email instead of sending;
+`OSCAR_TODAY=2026-11-20` fakes today's date. Use a scratch `OSCAR_DATA_ROOT` (a dry run still
+writes `close.json` reminder state, though never `bundled*`). `npm test` runs the unit tests
+(real CGD header formats, fake Gmail payloads - nothing touches Gmail).
+
 ## Multiple Months
 
 You can manage multiple months easily:
