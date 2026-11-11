@@ -26,7 +26,11 @@ import { TokenTracker } from './lib/token-tracker.js';
 import { getOAuthClient } from './lib/gmail-auth.js';
 import { getDataRoot } from './lib/paths.js';
 import { ensureMonthScaffold } from './lib/month-scaffold.js';
-import { recordFailure, recordSuccess, notify } from './lib/alert.js';
+import { recordFailure, recordSuccess } from './lib/alert.js';
+import { say } from './lib/notify-out.js';
+import { collectCsvParts, intakeCsvCandidates, scanDropFolder } from './lib/csv-intake.js';
+import { processWaiverEmail } from './lib/waiver-email.js';
+import { afterFiling } from './lib/close-job.js';
 
 const PROCESSED_LABEL = 'Oscar/Processed';
 // Gmail-side prefilter. Keyed on "not yet labeled Oscar/Processed", NOT on
@@ -38,9 +42,10 @@ const PROCESSED_LABEL = 'Oscar/Processed';
 // Skipped emails (no usable attachment) are re-checked every run within
 // that window - cheap (no extraction), and it means adding a subject to the
 // whitelist picks the email up on the next run with no manual step.
+// The "sem fatura" subjects are the waiver emails (no attachment, see lib/waiver-email.js).
 // The real access-control gate for HTML rendering is the subject whitelist
 // below - matching this query is necessary but not sufficient.
-const QUERY = `in:inbox -label:${PROCESSED_LABEL} newer_than:30d -in:chats (has:attachment OR subject:(fwd OR fw))`;
+const QUERY = `in:inbox -label:${PROCESSED_LABEL} newer_than:30d -in:chats (has:attachment OR subject:(fwd OR fw) OR subject:"sem fatura" OR subject:"sem factura")`;
 
 // HTML->PDF rendering (see renderHtmlToPdf) only runs for a message whose
 // subject matches one of these patterns - anything else with no real
@@ -64,10 +69,69 @@ const CHROME_PATH = process.env.CHROME_PATH || '/Applications/Google Chrome.app/
 // purpose: they're re-checked every run and would repeat every 10 minutes.
 const filedReport = [];
 
+// Months that received something this run (invoices or extracts); U3 uses it
+// to re-check open months and to flag late arrivals in bundled ones.
+const touchedMonths = new Set();
+
+// Confirmations of "sem fatura" waiver emails, sent as their own message.
+const waiverReport = [];
+
+// Unrecognised CSV emails stay unlabeled (a human must look), so they'd be
+// re-found - and re-reported - every 10 minutes for 30 days. Remember what
+// was already reported. Kept in local logs/ like alert.js's health state.
+const REPORTED_PATH = path.join(process.cwd(), 'logs', '.poll-reported.json');
+async function firstTimeReporting(key) {
+  let seen = {};
+  try { seen = JSON.parse(await fs.readFile(REPORTED_PATH, 'utf8')); } catch { /* first run */ }
+  if (seen[key]) return false;
+  seen[key] = new Date().toISOString();
+  await fs.mkdir(path.dirname(REPORTED_PATH), { recursive: true });
+  await fs.writeFile(REPORTED_PATH, JSON.stringify(seen, null, 2));
+  return true;
+}
+
 async function main() {
   // Resolve (and existence-check) the data root before touching Gmail, so an
   // unmounted share fails the run without marking any message as read.
   const dataRoot = getDataRoot();
+  let infraFailures = 0;
+  try {
+    infraFailures = await pollGmail(dataRoot);
+  } finally {
+    // The drop folder lives on the share, so it is scanned even when Gmail has
+    // nothing new; in finally so a run that dies partway still reports what
+    // it filed.
+    await pollDropFolder(dataRoot);
+    await sendFiledSummary();
+  }
+
+  // U3: something landed, so an open month may now be complete (bundle goes
+  // out minutes after the last missing piece, not next morning) or a bundled
+  // month got a late arrival. Never fails the poll run.
+  if (filedReport.length || waiverReport.length || touchedMonths.size) {
+    await afterFiling(touchedMonths);
+  }
+
+  // The run didn't throw, but attachments were left unprocessed because the
+  // extraction service was down - that's still an outage worth alerting on,
+  // and it's exactly the state that used to loop silently.
+  if (infraFailures > 0) {
+    await recordFailure(`${infraFailures} attachment(s) could not be extracted`);
+  } else {
+    await recordSuccess();
+  }
+}
+
+// U1 (upload path): CSVs dropped into <data-root>/inbox/ are classified and
+// filed like emailed ones.
+async function pollDropFolder(dataRoot) {
+  const r = await scanDropFolder({ dataRoot });
+  for (const line of r.filed) filedReport.push(`• ${line}`);
+  for (const name of r.unrecognised) filedReport.push(`⚠️ inbox/${name} - not a recognised CGD extract, moved to inbox/unrecognised/`);
+  r.months.forEach((m) => touchedMonths.add(m));
+}
+
+async function pollGmail(dataRoot) {
   const auth = await getOAuthClient();
   const gmail = google.gmail({ version: 'v1', auth });
 
@@ -83,8 +147,7 @@ async function main() {
 
   if (!messages.length) {
     console.log('No new invoice emails.');
-    await recordSuccess();
-    return;
+    return 0;
   }
 
   console.log(`Found ${messages.length} unprocessed candidate message(s).`);
@@ -99,24 +162,31 @@ async function main() {
     }
   } finally {
     if (browserRef.current) await browserRef.current.close();
-    // In finally so a run that dies partway still reports what it filed.
-    await sendFiledSummary();
   }
-
-  // The run didn't throw, but attachments were left unprocessed because the
-  // extraction service was down - that's still an outage worth alerting on,
-  // and it's exactly the state that used to loop silently.
-  if (infraFailures > 0) {
-    await recordFailure(`${infraFailures} attachment(s) could not be extracted`);
-  } else {
-    await recordSuccess();
-  }
+  return infraFailures;
 }
 
 async function processMessage({ gmail, messageId, extractor, processedLabelId, needsReviewDir, browserRef, subjectWhitelist }) {
   const { data: message } = await gmail.users.messages.get({ userId: 'me', id: messageId });
   const outerSubject = headerValue(message.payload, 'Subject') || '(no subject)';
   const emailDate = new Date(Number(message.internalDate));
+
+  // U2: a "sem fatura" waiver email is handled before the invoice path. Only
+  // Nuno's own addresses (OSCAR_OWNER_EMAILS) are honoured - anyone can email
+  // this inbox - anything else falls through as an ordinary email.
+  const waiver = await processWaiverEmail({ payload: message.payload });
+  if (waiver.kind === 'handled') {
+    waiverReport.push(waiver.text);
+    if (waiver.month) touchedMonths.add(waiver.month);
+    await labelProcessed(gmail, messageId, processedLabelId);
+    return 0;
+  }
+  if (waiver.kind === 'rejected') {
+    console.log(`Ignoring "sem fatura" email: ${waiver.reason}.`);
+    if (await firstTimeReporting(`waiver-rejected:${messageId}`)) {
+      waiverReport.push(`⚠️ Ignored a "sem fatura" email: ${waiver.reason}.`);
+    }
+  }
 
   // "Forward as attachment" (often used to batch-forward several selected
   // emails at once) attaches each original message as message/rfc822 -
@@ -140,11 +210,40 @@ async function processMessage({ gmail, messageId, extractor, processedLabelId, n
     buildCandidates({ source, gmail, messageId, subjectWhitelist, outerAuthorized, browserRef })
   );
 
+  // U1: bank-extract CSVs. Classified by content, filed into every month they
+  // cover. A recognised (or already-filed) CSV counts as handled, so the email
+  // gets labeled below; an unrecognised one is reported once and left alone.
+  let csvHandled = 0;
+  const csvCandidates = sources.flatMap((src) => collectCsvParts(src.payload)).map((part) => ({
+    filename: part.filename,
+    getBuffer: () => downloadAttachment(gmail, messageId, part),
+  }));
+  if (csvCandidates.length) {
+    try {
+      const csv = await intakeCsvCandidates(csvCandidates);
+      csvHandled = csv.filed.length + csv.duplicates;
+      for (const line of csv.filed) filedReport.push(`• ${line}`);
+      csv.months.forEach((m) => touchedMonths.add(m));
+      for (const name of csv.unrecognised) {
+        if (await firstTimeReporting(`${messageId}:${name}`)) {
+          filedReport.push(`⚠️ CSV "${name}" (from "${outerSubject}") is not a recognised CGD extract - left unprocessed`);
+        }
+      }
+    } catch (err) {
+      console.error(`  ERROR filing CSV from "${outerSubject}": ${err.message} - leaving email unprocessed.`);
+      return 1;
+    }
+  }
+
   if (!candidates.length) {
+    if (csvHandled > 0) {
+      await labelProcessed(gmail, messageId, processedLabelId);
+      return 0;
+    }
     console.log(
       `Skipping "${outerSubject}": no pdf/jpg/png attachment and no whitelisted HTML body found (including inside any forwarded .eml attachments), left unprocessed for manual look.`
     );
-    return;
+    return 0;
   }
 
   let handledCount = 0;
@@ -170,15 +269,19 @@ async function processMessage({ gmail, messageId, extractor, processedLabelId, n
   // mix of filed and failed attachments stays unlabeled so the next run can
   // finish it - the sidecar cache means the already-extracted ones aren't
   // paid for twice, and uniqueName() keeps the redo from overwriting.
-  if (handledCount > 0 && infraFailures === 0) {
-    await gmail.users.messages.modify({
-      userId: 'me',
-      id: messageId,
-      requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] },
-    });
+  if ((handledCount > 0 || csvHandled > 0) && infraFailures === 0) {
+    await labelProcessed(gmail, messageId, processedLabelId);
   }
 
   return infraFailures;
+}
+
+async function labelProcessed(gmail, messageId, processedLabelId) {
+  await gmail.users.messages.modify({
+    userId: 'me',
+    id: messageId,
+    requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] },
+  });
 }
 
 // Real attachments in a source always qualify; an HTML body qualifies if
@@ -269,6 +372,7 @@ async function fileCandidate({ candidate, extractor, needsReviewDir, emailDate }
   }
 
   const { paperDir, digitalDir } = await ensureMonthScaffold(monthStr);
+  touchedMonths.add(monthStr);
   const destDir = isPdf ? digitalDir : paperDir;
   const destName = uniqueName(destDir, filename);
   await moveFile(tmpPath, path.join(destDir, destName));
@@ -433,9 +537,10 @@ function correctYear(dateStr, emailDate) {
 }
 
 async function sendFiledSummary() {
+  if (waiverReport.length) await say('Oscar: sem fatura', waiverReport.join('\n'));
   if (!filedReport.length) return;
   const n = filedReport.length;
-  await notify(`Oscar: ${n} invoice${n === 1 ? '' : 's'} filed`, filedReport.join('\n'));
+  await say(`Oscar: ${n} item${n === 1 ? '' : 's'} filed`, filedReport.join('\n'));
 }
 
 function sanitizeFilename(name) {

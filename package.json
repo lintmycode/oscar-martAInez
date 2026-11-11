@@ -9,7 +9,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "test": "echo \"No tests yet\" && exit 0",
+    "test": "node --test test/*.test.js",
     "gmail:auth": "node gmail-auth-setup.js",
     "poll-inbox": "node poll-inbox.js"
   },

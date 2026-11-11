@@ -1,6 +1,6 @@
 # Monthly close: auto-run, chase what's missing, deliver the bundle
 
-Status: **spec, not built** (2026-11-11). **October 2026 is the test month** (opens 14/11).
+Status: **built, not deployed** (U1-U3, 2026-11-11; U4 bundle delivery is built separately). Deploy = merge, add the cron line below on echo, set `OSCAR_OWNER_EMAILS` / `OSCAR_REPORT_TO` in echo's `.env`. **October 2026 is the test month** (opens 14/11).
 
 ## Goal
 
@@ -109,9 +109,10 @@ has, with the missing items listed.
 - `--due` (cron): opens M-1 on/after the 14th if it has no state yet; for each open month,
   runs status. If complete → U4. Otherwise it sends the request (first time) or the daily
   reminder.
-- crontab on echo (system TZ is UTC, so pin Lisbon time):
-  `CRON_TZ=Europe/Lisbon` + `0 9 * * * …/cron/close-month.sh` (daily; the job decides
-  whether today warrants a message).
+- crontab on echo (system TZ is UTC and Ubuntu's cron doesn't reliably support `CRON_TZ`, so
+  the schedule is pinned in UTC): `0 9 * * * …/cron/close-month.sh` = 09:00 Lisbon in winter,
+  10:00 in summer (daily; the job decides whether today warrants a message, and computes
+  "today" in Europe/Lisbon itself).
 - `poll-inbox.js` calls the status check for open months at the end of a run that filed
   something. That way the bundle goes out minutes after the last missing piece lands,
   not the next morning.
