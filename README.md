@@ -41,6 +41,7 @@ oscar-martAInez/
 │   ├── transaction-grouper.js
 │   ├── extract-classifier.js   # Classify CGD extract CSVs by content
 │   ├── csv-intake.js           # File extracts into month folders (email + drop folder)
+│   ├── card-statement-pdf.js   # CGD card statement PDF -> card CSV layout
 │   ├── month-status.js         # "What is missing for month M?"
 │   ├── waivers.js, waiver-email.js  # Per-month waivers (sem fatura emails)
 │   └── close-job.js, close-state.js # Close scheduling + close.json state

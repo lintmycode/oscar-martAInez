@@ -17,6 +17,7 @@ import { TransactionGrouper } from './lib/transaction-grouper.js';
 import { TransactionNotes } from './lib/transaction-notes.js';
 import { resolvePaths, resolveConfigPaths } from './lib/paths.js';
 import { loadWaivers, findWaiver } from './lib/waivers.js';
+import { convertCardPdfsIn } from './lib/csv-intake.js';
 
 /**
  * Main CLI entry point (thin wrapper: parse args, runMonth, report)
@@ -124,6 +125,8 @@ export async function runMonth(monthStr) {
   // 7. Extract transactions from CSVs (from data/YYYY-MM/inputs/*.csv)
   // Note: Processes ALL CSVs (e.g., Jan+Feb for January) but saves only target month transactions
   // This handles CC billing cycles that span months while keeping output clean
+  // Card statements saved as PDF (CGD app, since 11/2026) -> CSV beside them.
+  await convertCardPdfsIn(monthStr);
   let transactions = await TransactionExtractor.extractFromDirectory(
     inputsDir,
     { year: year, month: month }

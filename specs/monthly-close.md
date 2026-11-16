@@ -76,6 +76,9 @@ has, with the missing items listed.
   same classifier files the CSVs (the file is then moved to `inbox/filed/`). Dropping straight
   into `YYYY-MM/inputs/` keeps working.
 - Same file twice (same content hash) is skipped, not duplicated.
+- **Card statement PDFs** (added 2026-11-16: the CGD app stopped exporting card CSVs): converted
+  to the card CSV layout by `lib/card-statement-pdf.js` on every path (email, drop folder,
+  straight into `inputs/`), only when no CSV of that statement exists; PDF kept for the bundle.
 
 ### U2. Month status ("what's missing")
 
