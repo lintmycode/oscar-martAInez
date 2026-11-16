@@ -28,7 +28,7 @@ import { getDataRoot } from './lib/paths.js';
 import { ensureMonthScaffold } from './lib/month-scaffold.js';
 import { recordFailure, recordSuccess } from './lib/alert.js';
 import { say } from './lib/notify-out.js';
-import { collectCsvParts, intakeCsvCandidates, scanDropFolder } from './lib/csv-intake.js';
+import { collectCsvParts, intakeCsvCandidates, scanDropFolder, isCardStatementPdf } from './lib/csv-intake.js';
 import { processWaiverEmail } from './lib/waiver-email.js';
 import { afterFiling } from './lib/close-job.js';
 
@@ -206,18 +206,33 @@ async function processMessage({ gmail, messageId, extractor, processedLabelId, n
   // the batch; otherwise each source still needs its own subject to match.
   const outerAuthorized = matchesWhitelist(stripSubjectPrefixes(outerSubject), subjectWhitelist);
 
+  // CGD card statements arrive as PDF since 11/2026. They're bank extracts,
+  // not invoices: pull them out before the invoice path sees them, and file
+  // them with the CSVs below (converted by lib/card-statement-pdf.js).
+  const downloaded = new Map(); // part -> Buffer, so nothing is downloaded twice
+  const statementParts = new Set();
+  for (const part of sources.flatMap((src) => collectAttachmentParts(src.payload))) {
+    if (path.extname(part.filename || '').toLowerCase() !== '.pdf') continue;
+    const buf = await downloadAttachment(gmail, messageId, part);
+    downloaded.set(part, buf);
+    if (isCardStatementPdf(buf)) statementParts.add(part);
+  }
+
   const candidates = sources.flatMap((source) =>
-    buildCandidates({ source, gmail, messageId, subjectWhitelist, outerAuthorized, browserRef })
+    buildCandidates({ source, gmail, messageId, subjectWhitelist, outerAuthorized, browserRef, statementParts, downloaded })
   );
 
   // U1: bank-extract CSVs. Classified by content, filed into every month they
   // cover. A recognised (or already-filed) CSV counts as handled, so the email
   // gets labeled below; an unrecognised one is reported once and left alone.
   let csvHandled = 0;
-  const csvCandidates = sources.flatMap((src) => collectCsvParts(src.payload)).map((part) => ({
-    filename: part.filename,
-    getBuffer: () => downloadAttachment(gmail, messageId, part),
-  }));
+  const csvCandidates = [
+    ...sources.flatMap((src) => collectCsvParts(src.payload)).map((part) => ({
+      filename: part.filename,
+      getBuffer: () => downloadAttachment(gmail, messageId, part),
+    })),
+    ...[...statementParts].map((part) => ({ filename: part.filename, getBuffer: async () => downloaded.get(part) })),
+  ];
   if (csvCandidates.length) {
     try {
       const csv = await intakeCsvCandidates(csvCandidates);
@@ -226,7 +241,7 @@ async function processMessage({ gmail, messageId, extractor, processedLabelId, n
       csv.months.forEach((m) => touchedMonths.add(m));
       for (const name of csv.unrecognised) {
         if (await firstTimeReporting(`${messageId}:${name}`)) {
-          filedReport.push(`⚠️ CSV "${name}" (from "${outerSubject}") is not a recognised CGD extract - left unprocessed`);
+          filedReport.push(`⚠️ "${name}" (from "${outerSubject}") is not a recognised CGD extract - left unprocessed`);
         }
       }
     } catch (err) {
@@ -287,19 +302,23 @@ async function labelProcessed(gmail, messageId, processedLabelId) {
 // Real attachments in a source always qualify; an HTML body qualifies if
 // EITHER the outer batch subject was already authorized, or this source's
 // own subject is separately whitelisted.
-function buildCandidates({ source, gmail, messageId, subjectWhitelist, outerAuthorized, browserRef }) {
+function buildCandidates({ source, gmail, messageId, subjectWhitelist, outerAuthorized, browserRef, statementParts = new Set(), downloaded = new Map() }) {
   const { subject, payload } = source;
 
-  const attachmentCandidates = collectAttachmentParts(payload)
-    .filter((p) => SUPPORTED_EXT.has(path.extname(p.filename || '').toLowerCase()))
+  const supported = collectAttachmentParts(payload)
+    .filter((p) => SUPPORTED_EXT.has(path.extname(p.filename || '').toLowerCase()));
+  const attachmentCandidates = supported
+    .filter((p) => !statementParts.has(p)) // bank statements go to extract intake
     .map((part) => ({
       subject,
       filename: part.filename,
       ext: path.extname(part.filename).toLowerCase(),
-      getBuffer: () => downloadAttachment(gmail, messageId, part),
+      getBuffer: async () => downloaded.get(part) || downloadAttachment(gmail, messageId, part),
     }));
 
   if (attachmentCandidates.length) return attachmentCandidates;
+  // Only bank statements attached: not an invoice email, so no HTML-body fallback.
+  if (supported.length) return [];
 
   const strippedSubject = stripSubjectPrefixes(subject);
   if (!outerAuthorized && !matchesWhitelist(strippedSubject, subjectWhitelist)) return [];

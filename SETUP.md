@@ -294,6 +294,18 @@ A month is **complete** when all hold:
   and moves it to `inbox/filed/` (or `inbox/unrecognised/`).
 - Dropping straight into `YYYY-MM/inputs/` still works.
 
+**Card statements as PDF.** Since 11/2026 the CGD app only gives the card statement ("Extrato
+Cartão") as a PDF. All three paths above accept it: `lib/card-statement-pdf.js` reads it with
+`pdftotext -layout` and writes the same rows in the old card CSV layout, so nothing downstream
+changes. The PDF is kept next to its CSV and goes into the accountant's bundle.
+- A PDF is converted **only** when no CSV of that statement is in the month yet, so sending both
+  never double-counts. CSV exports keep working exactly as before.
+- Emailed statement PDFs are kept out of invoice intake (detected by content, not filename).
+- A PDF dropped into `YYYY-MM/inputs/` gets `<same name>.csv` beside it on the next close check
+  or month run, and is also filed into the statement's other month.
+- The parse is checked against the statement's own "Total de movimentos"; if the rows don't add
+  up (CGD changed the layout), the PDF is reported as unrecognised instead of filed.
+
 ### Waivers ("this one will never have an invoice")
 
 Every missing row is listed on Telegram with a number the first time it appears
