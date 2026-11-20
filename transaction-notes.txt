@@ -24,3 +24,7 @@ EXECU* FISCAL* → Tax enforcement payment (execução fiscal) to the AT; no inv
 
 # Garnishments (penhora) taken from the account by the AT/court - no invoice
 PENHORA* → Garnishment (penhora) debited by the AT/court; no invoice - proof is the notification of the penhora
+
+# Proinconta is the accountant's own agency: they issue and file this invoice
+# themselves, so Oscar must not chase it as a missing invoice
+PROINCONTA* → Accountant's fee (Proinconta); invoice handled by the accountant
